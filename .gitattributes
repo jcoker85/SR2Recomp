@@ -1,0 +1,7 @@
+# The patch against the toolkit must keep its exact bytes for git apply (Git for Windows' core.autocrlf would give it CRLF,
+# and its hunks for the toolkit's LF shell scripts would no longer match: tools/build.sh stopped at the patch)
+*.patch -text
+# Shell scripts keep LF for bash, Windows batch files CRLF
+*.sh text eol=lf
+*.py text eol=lf
+*.cmd text eol=crlf
