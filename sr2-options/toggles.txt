@@ -1,0 +1,14 @@
+# Smuggler's Run 2: Hostile Territory (USA, SLUS-20204, program CRC 0EF2C216): the launcher's code options, built into the
+# game program as eerecomp --toggles lines (ADDRESS WORD COND_ADDRESS VALUE, hex): the instruction at ADDRESS is WORD while
+# the 16-bit value at COND_ADDRESS is VALUE, otherwise the disc's own instruction. The launcher sets the option words in
+# boot.txt ("2 000FFF08 2 1" and so on); below the program (it loads at 0x100000), so the game never touches them.
+#
+# [60 FPS] The game keeps its frame interval in the word at 0x36EDBC (2 vblanks a frame in the menus and while driving, 1
+# on the loading screens) and works with the time each frame took, so it runs right at 1: the option writes 1 there every
+# frame (60fps.txt). The developers left the choice in (a debug function at 0x103890 flips the word between 1 and 2), and to
+# make 60 on a PS2 the game leaves out three things while the word is below 2: the rear-view mirror at the top of the
+# screen, the terrain in the radar and a third drawing pass. These toggles keep them at 60 FPS (the comparison answers
+# "not below 2"):
+001CA990 24020000 000FFF08 1   # slti v0,v0,2 -> addiu v0,zero,0
+001CCCC8 24020000 000FFF08 1   # slti v0,v0,2 -> addiu v0,zero,0
+001CF704 24020000 000FFF08 1   # slti v0,v0,2 -> addiu v0,zero,0

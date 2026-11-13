@@ -1,0 +1,7 @@
+# [Widescreen 16:9] by No.47, for the 4:3 Menus option (menus43.txt): the runtime keeps the 16-bit word at 0x000FFF00 at 1
+# while the picture is 16:9 (driving) and 0 while it is 4:3 (menus, loading, videos). Place 3 lines: the next N lines apply
+# only while that word is VALUE. Without the patch the factor is 1.0 in every part of the game.
+3 000FFF00 1 1
+1 0036EDB8 4 3FAAAAAA
+3 000FFF00 1 0
+1 0036EDB8 4 3F800000

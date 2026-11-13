@@ -1,0 +1,59 @@
+# Disc images and anything taken from the game never go into this repository.
+*.iso
+*.chd
+*.cue
+*.bin
+*.img
+*.cso
+*.elf
+*.zip
+*.7z
+# The game's program as it is on the disc (SLUS_202.04) and any copy of it
+SLUS_*
+
+# Memory cards, save states, recordings and memory dumps of a running game
+*.ps2
+*.mcd
+*.state
+*.sstate
+*.inputs
+*.dmp
+
+# Cover art for the launcher, downloaded at run time from libretro-thumbnails; not ours to redistribute
+/covers/
+# Screenshots of the game
+/screenshots/
+
+# Build outputs
+/SR2Recomp.exe
+/SR2Recomp.exe.old
+/games.txt
+/hub/build/
+/dist/
+*.log
+
+# Written by the launcher at run time
+/settings.ini
+/sr2-options/boot.txt
+
+# Local working files (old toolkit copies, backups, downloads, tools)
+/_local/
+/backup-*/
+/ps2-native-recomp-0.0.2/
+/tools/releases/
+/tools/mame/
+
+# Editor / OS
+/.idea/
+/.vs/
+/.vscode/
+/.claude/
+*.swp
+Thumbs.db
+.DS_Store
+__pycache__/
+
+
+# SR2Recomp: the converted disc image and the toolkit's per-game working files live outside git
+/sr2.iso
+/pcsx2/

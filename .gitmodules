@@ -1,0 +1,3 @@
+[submodule "ps2-native-recomp"]
+	path = ps2-native-recomp
+	url = https://github.com/exoteric33/ps2-native-recomp.git

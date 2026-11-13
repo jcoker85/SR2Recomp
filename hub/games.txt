@@ -1,0 +1,9 @@
+# PS2 games the hub lists, one per line:
+#   Title|Subtitle|path/to/ps2run.exe|Cover name|id|ELF name|ELF CRC-32
+# The path is relative to this file's folder and lies inside the toolkit
+# folder (<toolkit>/build/native-<id>/ps2run.exe). Cover name is the box art's
+# name in libretro-thumbnails "Sony - PlayStation 2" (downloaded to covers/<id>.png).
+# ELF CRC-32 (hex, optional) is the program file on the disc the game is made from: the
+# launcher refuses a disc image without that exact file (another game, release or a
+# damaged copy), which would only start to a black screen.
+Smuggler's Run 2: Hostile Territory|2001  -  Angel Studios|ps2-native-recomp/build/native-sr2/ps2run.exe|Smuggler's Run 2 - Hostile Territory (USA)|sr2|SLUS_202.04|BF199E2C

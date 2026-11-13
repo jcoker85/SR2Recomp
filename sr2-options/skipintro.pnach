@@ -1,0 +1,21 @@
+gametitle=Smuggler's Run 2: Hostile Territory (NTSC-U) SLUS-20204 0EF2C216
+
+// Skip Intro, made for this recompilation. These lines are outside any section, so they are always built in; they do
+// nothing until the game is started with the switch -skipintro (the launcher's Skip Intro option: ps2run --arg -skipintro).
+// The game asks for its developer switch "nofmv" in three places. Two of them belong to skipping the intro:
+//  * The object that runs the game's start (constructor 0x11CB18) asks at 0x11CB70 (the name's address built at 0x11CB48
+//    and 0x11CB54) and keeps the answer at +0x408; each step of the start (the Rockstar and Angel Studios logos, the intro
+//    movie, and the step after the movie that starts the menus' music, sounds 39 and 40 at 0x11DE24) is left out when it is
+//    set.
+//  * The boot asks at 0x10862C (built at 0x108628 and 0x108630) and, when it was given, starts that music itself
+//    (0x108674): the game's own way of keeping the menus' music when the start is skipped.
+// The third (0x1F2A84) takes away the moving background of the menus, so here only the first two ask for another name,
+// "skipintro", kept at 0x000FFF20 below the program:
+//   lui a0,0x0038 / lui a0,0x0037 -> lui a0,0x0010;  addiu a0,a0,... -> addiu a0,a0,-0xE0   (a0 = 0x000FFF20)
+patch=0,EE,0011CB48,word,3C040010
+patch=0,EE,0011CB54,word,2484FF20
+patch=0,EE,00108628,word,3C040010
+patch=0,EE,00108630,word,2484FF20
+patch=0,EE,000FFF20,word,70696B73
+patch=0,EE,000FFF24,word,72746E69
+patch=0,EE,000FFF28,word,0000006F

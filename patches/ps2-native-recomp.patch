@@ -1,0 +1,3009 @@
+diff --git a/host/keymap.cpp b/host/keymap.cpp
+index ea997e0..d8d0967 100644
+--- a/host/keymap.cpp
++++ b/host/keymap.cpp
+@@ -169,25 +169,83 @@ Config defaults() {
+     set(DpadUp, {SDL_SCANCODE_UP}), set(DpadDown, {SDL_SCANCODE_DOWN}), set(DpadLeft, {SDL_SCANCODE_LEFT}), set(DpadRight, {SDL_SCANCODE_RIGHT});
+     set(LeftUp, {SDL_SCANCODE_W}), set(LeftDown, {SDL_SCANCODE_S}), set(LeftLeft, {SDL_SCANCODE_A}), set(LeftRight, {SDL_SCANCODE_D});
+     set(RightUp, {SDL_SCANCODE_I}), set(RightDown, {SDL_SCANCODE_K}), set(RightLeft, {SDL_SCANCODE_J}), set(RightRight, {SDL_SCANCODE_L});
+-    set(Cross, {SDL_SCANCODE_SPACE, SDL_SCANCODE_RETURN, SDL_SCANCODE_KP_ENTER});
+-    set(Circle, {SDL_SCANCODE_E, kMouseMiddle});
+-    set(Square, {kMouseLeft});
+-    set(Triangle, {kMouseRight});
+-    set(L1, {SDL_SCANCODE_LSHIFT, kMouseX2});
+-    set(R1, {SDL_SCANCODE_F});
+-    set(L2, {SDL_SCANCODE_Q});
+-    set(R2, {SDL_SCANCODE_R});
+-    set(L3, {SDL_SCANCODE_X});
+-    set(R3, {SDL_SCANCODE_C});
+-    set(Start, {SDL_SCANCODE_ESCAPE});
+-    set(Select, {SDL_SCANCODE_TAB, SDL_SCANCODE_BACKSPACE});
++    // MC2Recomp: the buttons on the keys the project's author chose (Z X C V / B N M Comma along the bottom row)
++    set(Cross, {SDL_SCANCODE_X});
++    set(Circle, {SDL_SCANCODE_C});
++    set(Square, {SDL_SCANCODE_Z});
++    set(Triangle, {SDL_SCANCODE_V});
++    set(L1, {SDL_SCANCODE_B});
++    set(R1, {SDL_SCANCODE_N});
++    set(L2, {SDL_SCANCODE_M});
++    set(R2, {SDL_SCANCODE_COMMA});
++    set(L3, {SDL_SCANCODE_LALT});
++    set(R3, {SDL_SCANCODE_SPACE});
++    set(Start, {SDL_SCANCODE_RETURN});
++    set(Select, {SDL_SCANCODE_TAB});
+     set(Roll, {SDL_SCANCODE_LCTRL, kMouseX1});
+-    set(Rage, {SDL_SCANCODE_V});
++    set(Rage, {});
++    for (int &p : c.pad) p = kPadNone;
++    c.pad[DpadUp] = SDL_CONTROLLER_BUTTON_DPAD_UP, c.pad[DpadDown] = SDL_CONTROLLER_BUTTON_DPAD_DOWN;
++    c.pad[DpadLeft] = SDL_CONTROLLER_BUTTON_DPAD_LEFT, c.pad[DpadRight] = SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
++    c.pad[Cross] = SDL_CONTROLLER_BUTTON_A, c.pad[Circle] = SDL_CONTROLLER_BUTTON_B;
++    c.pad[Square] = SDL_CONTROLLER_BUTTON_X, c.pad[Triangle] = SDL_CONTROLLER_BUTTON_Y;
++    c.pad[L1] = SDL_CONTROLLER_BUTTON_LEFTSHOULDER, c.pad[R1] = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
++    c.pad[L2] = kPadLeftTrigger, c.pad[R2] = kPadRightTrigger;
++    c.pad[L3] = SDL_CONTROLLER_BUTTON_LEFTSTICK, c.pad[R3] = SDL_CONTROLLER_BUTTON_RIGHTSTICK;
++    c.pad[Start] = SDL_CONTROLLER_BUTTON_START, c.pad[Select] = SDL_CONTROLLER_BUTTON_BACK;
++    c.pad[LeftLeft] = kPadStickBase + 0, c.pad[LeftRight] = kPadStickBase + 1, c.pad[LeftUp] = kPadStickBase + 2, c.pad[LeftDown] = kPadStickBase + 3;
++    c.pad[RightLeft] = kPadStickBase + 4, c.pad[RightRight] = kPadStickBase + 5, c.pad[RightUp] = kPadStickBase + 6, c.pad[RightDown] = kPadStickBase + 7;
++    std::copy(std::begin(c.pad), std::end(c.pad), std::begin(c.pad2));  // player 2's controller: the same defaults
+     set(Help, {});  // H used to be the key card; it was easy to hit by mistake, F1 opens the quick menu now
+     set(Menu, {});
+     return c;
+ }
+ 
++bool is_pad_action(int action) {
++    return action >= DpadUp && action <= Select;
++}
++
++namespace {
++// the words of the stick directions, in the order of kPadStickBase + 0..7
++const char *const kStickWords[8] = {"leftstick_left", "leftstick_right", "leftstick_up", "leftstick_down",
++                                    "rightstick_left", "rightstick_right", "rightstick_up", "rightstick_down"};
++}  // namespace
++
++std::string pad_input_word(int pad_input) {
++    if (pad_input == kPadLeftTrigger) return "lefttrigger";
++    if (pad_input == kPadRightTrigger) return "righttrigger";
++    if (pad_input >= kPadStickBase && pad_input < kPadStickBase + 8) return kStickWords[pad_input - kPadStickBase];
++    if (pad_input >= 0 && pad_input < SDL_CONTROLLER_BUTTON_MAX) {
++        const char *name = SDL_GameControllerGetStringForButton(static_cast<SDL_GameControllerButton>(pad_input));
++        if (name && *name) return name;
++    }
++    return "none";
++}
++
++namespace {
++// 'pad_cross = a': SDL's controller button names (a, b, x, y, back, start, guide, leftstick, rightstick, leftshoulder,
++// rightshoulder, dpup, dpdown, dpleft, dpright, misc1, paddle1 to paddle4, touchpad), the two triggers, and a few short names
++bool lookup_pad(const std::string &text, int &pad_input) {
++    const std::string v = squash(text);
++    if (v == "none" || v.empty()) return pad_input = kPadNone, true;
++    if (v == "lefttrigger" || v == "lt" || v == "l2" || v == "zl") return pad_input = kPadLeftTrigger, true;
++    if (v == "righttrigger" || v == "rt" || v == "r2" || v == "zr") return pad_input = kPadRightTrigger, true;
++    for (int i = 0; i < 8; ++i)
++        if (v == squash(kStickWords[i])) return pad_input = kPadStickBase + i, true;
++    static const std::map<std::string, int> shorts = {
++        {"lb", SDL_CONTROLLER_BUTTON_LEFTSHOULDER}, {"rb", SDL_CONTROLLER_BUTTON_RIGHTSHOULDER}, {"l1", SDL_CONTROLLER_BUTTON_LEFTSHOULDER},
++        {"r1", SDL_CONTROLLER_BUTTON_RIGHTSHOULDER}, {"ls", SDL_CONTROLLER_BUTTON_LEFTSTICK}, {"rs", SDL_CONTROLLER_BUTTON_RIGHTSTICK},
++        {"l3", SDL_CONTROLLER_BUTTON_LEFTSTICK}, {"r3", SDL_CONTROLLER_BUTTON_RIGHTSTICK}, {"view", SDL_CONTROLLER_BUTTON_BACK},
++        {"select", SDL_CONTROLLER_BUTTON_BACK}, {"menu", SDL_CONTROLLER_BUTTON_START}, {"dpadup", SDL_CONTROLLER_BUTTON_DPAD_UP},
++        {"dpaddown", SDL_CONTROLLER_BUTTON_DPAD_DOWN}, {"dpadleft", SDL_CONTROLLER_BUTTON_DPAD_LEFT}, {"dpadright", SDL_CONTROLLER_BUTTON_DPAD_RIGHT}};
++    if (const auto it = shorts.find(v); it != shorts.end()) return pad_input = it->second, true;
++    const SDL_GameControllerButton b = SDL_GameControllerGetButtonFromString(v.c_str());
++    if (b == SDL_CONTROLLER_BUTTON_INVALID) return false;
++    pad_input = b;
++    return true;
++}
++}  // namespace
++
+ std::string input_name(int input) {
+     switch (input) {
+     case kMouseLeft: return "Left Mouse";
+@@ -200,6 +258,7 @@ std::string input_name(int input) {
+     case SDL_SCANCODE_RETURN: return "Enter";
+     case SDL_SCANCODE_ESCAPE: return "Esc";
+     case SDL_SCANCODE_KP_ENTER: return "Keypad Enter";
++    case SDL_SCANCODE_COMMA: return "Comma";  // "," would split the key list in keys.ini
+     default: break;
+     }
+     if (input > 0 && input < kScancodes) {
+@@ -235,6 +294,14 @@ void parse(const std::string &text, Config &config, std::vector<std::string> &pr
+         std::string name_with_underscore;
+         for (char c : trim(line.substr(0, eq))) name_with_underscore += c == ' ' || c == '-' ? '_' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+         const std::string value = trim(line.substr(eq + 1));
++        if (name == "p1device") {
++            const std::string v = squash(value);
++            if (v == "both" || v == "any" || v.empty()) config.p1_device = 0;
++            else if (v == "controller" || v == "pad" || v == "gamepad") config.p1_device = 1;
++            else if (v == "keyboard" || v == "keys") config.p1_device = 2;
++            else bad("p1_device is controller, keyboard or both, ignored");
++            continue;
++        }
+         if (name == "mousestick") {
+             const std::string v = squash(value);
+             if (v == "off" || v == "no" || v == "none" || v == "0") config.mouse_stick = 0;
+@@ -270,8 +337,8 @@ void parse(const std::string &text, Config &config, std::vector<std::string> &pr
+         }
+         if (name == "scale") {
+             const std::string v = squash(value);
+-            if (v == "1" || v == "2" || v == "3") config.scale = v[0] - '0';
+-            else bad("scale is 1, 2 or 3, ignored");
++            if (v == "1" || v == "2" || v == "3" || v == "4") config.scale = v[0] - '0';
++            else bad("scale is 1, 2, 3 or 4, ignored");
+             continue;
+         }
+         if (name == "mousespeed") {
+@@ -281,6 +348,15 @@ void parse(const std::string &text, Config &config, std::vector<std::string> &pr
+             else config.mouse_speed = v;
+             continue;
+         }
++        if (name_with_underscore.compare(0, 4, "pad_") == 0 || name_with_underscore.compare(0, 5, "pad2_") == 0) {
++            const bool second = name_with_underscore[3] == '2';
++            const auto pa = actions.find(name_with_underscore.substr(second ? 5 : 4));
++            int pad_input = kPadNone;
++            if (pa == actions.end() || !is_pad_action(pa->second)) bad("unknown controller button line '" + trim(line.substr(0, eq)) + "', ignored");
++            else if (!lookup_pad(value, pad_input)) bad("'" + value + "' is not a controller button (a, b, x, y, leftshoulder, lefttrigger, back, start, dpup, ...), ignored");
++            else (second ? config.pad2 : config.pad)[pa->second] = pad_input;
++            continue;
++        }
+         auto it = actions.find(name_with_underscore);
+         if (it == actions.end()) it = actions.find(name);
+         if (it == actions.end()) {
+@@ -348,6 +424,20 @@ std::string default_file_text() {
+         t += std::string(kInfo[a].name) + std::string(12 - std::min<std::size_t>(11, std::strlen(kInfo[a].name)), ' ') + "= " + list(c, a) + "\n";
+     }
+     t +=
++        "\n# The game controller: which of its inputs works each console button and each direction of the two sticks. Names:\n"
++        "# a, b, x, y (the four on the right, by their place: a is the bottom one), leftshoulder, rightshoulder, lefttrigger,\n"
++        "# righttrigger, leftstick, rightstick (pressed in), back, start, dpup, dpdown, dpleft, dpright, a stick direction\n"
++        "# (leftstick_left, leftstick_right, leftstick_up, leftstick_down, the same for rightstick), or none. A trigger or a stick\n"
++        "# direction stays analog on a stick: pad_right_up = righttrigger gives a pedal. Back and then Start opens the quick menu.\n";
++    for (int a = 0; a < ActionCount; ++a)
++        if (is_pad_action(a)) t += std::string("pad_") + kInfo[a].name + " = " + pad_input_word(c.pad[a]) + "\n";
++    t += "\n# The second controller (player 2): the same names with pad2_ in front.\n";
++    for (int a = 0; a < ActionCount; ++a)
++        if (is_pad_action(a)) t += std::string("pad2_") + kInfo[a].name + " = " + pad_input_word(c.pad2[a]) + "\n";
++    t +=
++        "\n# What plays as player 1: controller (the keyboard does not work the game), keyboard (the keyboard and mouse; the first\n"
++        "# controller is then player 2), or both (the keyboard and the first controller; the second controller is player 2).\n"
++        "p1_device = both\n"
+         "\n# The mouse can also push a stick (off, left or right). Off: the mouse only clicks. On: the pointer is locked in the window\n"
+         "# and moving the mouse pushes that stick; mouse_speed is how far (1 is a good start). mouse_invert turns a direction\n"
+         "# round: off, x (left and right), y (up and down) or both. mouse_deadzone (0 to 90 percent) pushes the stick that far\n"
+diff --git a/host/keymap.hpp b/host/keymap.hpp
+index 3d53298..73c242a 100644
+--- a/host/keymap.hpp
++++ b/host/keymap.hpp
+@@ -35,8 +35,23 @@ struct Config {
+     double mouse_deadzone = 0; // 0 to 0.9: how far the stick jumps out as soon as the mouse moves
+     int look = -1;             // the picture look (F2) written in keys.ini, -1 when the file has no 'look' line
+     int scale = 0;             // the inner resolution (1 to 3 times the console's) used at the next start, 0 when the file has no 'scale' line
++    // The game controller: which of its inputs works each console button and each direction of the console's two sticks (keys.ini
++    // 'pad_cross = a', 'pad_right_up = righttrigger' and so on). A value is an SDL_GameControllerButton, kPadLeftTrigger /
++    // kPadRightTrigger, a stick direction (kPadStickBase + axis * 2 + 1 for the plus side), or kPadNone. Analog inputs (stick
++    // directions, triggers) stay analog on a stick direction; on a button they press it past half way.
++    int pad[ActionCount] = {};
++    // the second controller (player 2), keys.ini 'pad2_cross = a' and so on; the same defaults as `pad`
++    int pad2[ActionCount] = {};
++    // what plays as player 1 (keys.ini 'p1_device'): 0 the keyboard and the first controller together (no line, as before),
++    // 1 the controller only (the keyboard does not work the game), 2 the keyboard only (the first controller is player 2)
++    int p1_device = 0;
+ };
+ 
++constexpr int kPadNone = -1, kPadLeftTrigger = 100, kPadRightTrigger = 101;
++constexpr int kPadStickBase = 110;           // + SDL_GameControllerAxis (LEFTX..RIGHTY) * 2, + 1 for right / down
++bool is_pad_action(int action);              // the 16 console buttons and 8 stick directions a controller input can be given to
++std::string pad_input_word(int pad_input);   // "a", "leftshoulder", "lefttrigger", "none": the word written in keys.ini
++
+ // The picture looks the F2 key goes through. The number is also the video option bits (ps2/video.hpp): bit 0 smooth edges, bit 1 soft, bit 2 sharp (look 4: cubic enlargement + light sharpening; look 5 = sharp + smooth edges).
+ constexpr int kLookCount = 6;
+ constexpr int kDefaultLook = 5;
+diff --git a/host/window.cpp b/host/window.cpp
+index 6c7c2dc..b761612 100644
+--- a/host/window.cpp
++++ b/host/window.cpp
+@@ -63,19 +63,18 @@ enum Button : std::uint16_t {
+     kTriangle = 1u << 12, kCircle = 1u << 13, kCross = 1u << 14, kSquare = 1u << 15,
+ };
+ 
++// The console buttons a controller button works; which one is in keys.ini ('pad_cross = a', keymap::Config::pad; the defaults are
++// A Cross, B Circle, X Square, Y Triangle, the shoulders L1/R1, the triggers L2/R2, the sticks pressed in L3/R3, Back Select, Start).
+ struct PadBinding {
+-    SDL_GameControllerButton button;
++    int action;  // keymap::Action
+     std::uint16_t mask;
+ };
+ 
+ constexpr PadBinding kPadButtons[] = {
+-    {SDL_CONTROLLER_BUTTON_A, kCross},          {SDL_CONTROLLER_BUTTON_B, kCircle},
+-    {SDL_CONTROLLER_BUTTON_X, kSquare},         {SDL_CONTROLLER_BUTTON_Y, kTriangle},
+-    {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, kL1},  {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, kR1},
+-    {SDL_CONTROLLER_BUTTON_LEFTSTICK, kL3},     {SDL_CONTROLLER_BUTTON_RIGHTSTICK, kR3},
+-    {SDL_CONTROLLER_BUTTON_BACK, kSelect},      {SDL_CONTROLLER_BUTTON_START, kStart},
+-    {SDL_CONTROLLER_BUTTON_DPAD_UP, kUp},       {SDL_CONTROLLER_BUTTON_DPAD_DOWN, kDown},
+-    {SDL_CONTROLLER_BUTTON_DPAD_LEFT, kLeft},   {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, kRight},
++    {keymap::Cross, kCross}, {keymap::Circle, kCircle}, {keymap::Square, kSquare}, {keymap::Triangle, kTriangle},
++    {keymap::L1, kL1},       {keymap::R1, kR1},         {keymap::L2, kL2},         {keymap::R2, kR2},
++    {keymap::L3, kL3},       {keymap::R3, kR3},         {keymap::Select, kSelect}, {keymap::Start, kStart},
++    {keymap::DpadUp, kUp},   {keymap::DpadDown, kDown}, {keymap::DpadLeft, kLeft}, {keymap::DpadRight, kRight},
+ };
+ 
+ SDL_Window *g_window = nullptr;
+@@ -239,6 +238,19 @@ std::uint8_t axis(SDL_GameController *pad, SDL_GameControllerAxis a) {
+     return static_cast<std::uint8_t>(std::clamp((v + 32768) >> 8, 0, 255));
+ }
+ 
++// How far a controller input is pushed, 0 to 1: a button 0 or 1, a trigger, or one side of a stick axis (keymap kPadStickBase)
++double pad_amount(SDL_GameController *pad, int source) {
++    if (source == keymap::kPadLeftTrigger || source == keymap::kPadRightTrigger)
++        return SDL_GameControllerGetAxis(pad, source == keymap::kPadLeftTrigger ? SDL_CONTROLLER_AXIS_TRIGGERLEFT : SDL_CONTROLLER_AXIS_TRIGGERRIGHT) / 32767.0;
++    if (source >= keymap::kPadStickBase && source < keymap::kPadStickBase + 8) {
++        const int k = source - keymap::kPadStickBase;
++        const int v = SDL_GameControllerGetAxis(pad, static_cast<SDL_GameControllerAxis>(k / 2));
++        return std::clamp((k % 2 ? v : -v) / 32767.0, 0.0, 1.0);
++    }
++    if (source >= 0 && source < SDL_CONTROLLER_BUTTON_MAX) return SDL_GameControllerGetButton(pad, static_cast<SDL_GameControllerButton>(source)) ? 1.0 : 0.0;
++    return 0.0;
++}
++
+ void rumble(int port) {
+     static double last_strong[2] = {};
+     static bool last_weak[2] = {};
+@@ -274,12 +286,13 @@ const char *pad_kind(SDL_GameController *pad) {
+ 
+ const char *or_unknown(const char *name) { return name ? name : "a controller"; }
+ 
+-// a new controller takes the first free port, the second one plugs in player 2
++// a new controller takes the first free port, the second one plugs in player 2. With keys.ini 'p1_device = keyboard' the
++// keyboard is player 1 and controllers only go to port 2.
+ void open_pad(int device) {
+     const SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(device);
+     for (SDL_GameController *pad : g_pads)
+         if (pad && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) == id) return;
+-    for (int port = 0; port < 2; ++port)
++    for (int port = g_keys.p1_device == 2 ? 1 : 0; port < 2; ++port)
+         if (!g_pads[port]) {
+             g_pads[port] = SDL_GameControllerOpen(device);
+             if (g_pads[port]) std::fprintf(stderr, "[pad] %s (%s) in port %d\n", or_unknown(SDL_GameControllerName(g_pads[port])), pad_kind(g_pads[port]), port + 1);
+@@ -299,6 +312,20 @@ void close_pad(SDL_JoystickID id) {
+     }
+ }
+ 
++bool g_pads_opened = false;  // the controllers present at the start have been given their ports
++
++// p1_device changed in keys.ini while the game runs (the launcher, or an edit): every controller takes its port again
++void reseat_pads() {
++    if (!g_pads_opened) return;
++    for (SDL_GameController *&pad : g_pads)
++        if (pad) {
++            SDL_GameControllerClose(pad);
++            pad = nullptr;
++        }
++    for (int i = 0; i < SDL_NumJoysticks(); ++i)
++        if (SDL_IsGameController(i)) open_pad(i);
++}
++
+ // --- PS2_PAD_SCRIPT: virtual controllers, to test without hardware ---
+ //
+ // PS2_PAD_SCRIPT=<file> plugs in virtual game controllers (SDL's virtual joysticks, which go through the same game controller
+@@ -507,7 +534,13 @@ void load_keys() {
+     std::vector<std::string> problems;
+     if (have) keymap::parse(text, config, problems);
+     for (const std::string &p : problems) std::fprintf(stderr, "[keys] %s, %s\n", g_keys_path.c_str(), p.c_str());
++    const int old_device = g_keys.p1_device;
+     g_keys = config;
++    if (config.p1_device != old_device || !g_pads_opened) {
++        static const char *const kDevice[3] = {"the keyboard and the first controller", "the controller only", "the keyboard only (the first controller is player 2)"};
++        std::fprintf(stderr, "[keys] player 1 is %s\n", kDevice[config.p1_device]);
++        if (config.p1_device != old_device) reseat_pads();
++    }
+     if (!g_look_forced && config.look >= 0) g_look = config.look;
+     g_keys.look = g_look;
+     ps2::set_video_options(static_cast<std::uint32_t>(g_look));
+@@ -761,10 +794,9 @@ void poll_port(int port) {
+     std::uint16_t pressed = 0;
+     std::uint8_t l2 = 0xFF, r2 = 0xFF;
+     std::uint8_t lx = 0x80, ly = 0x80, rx = 0x80, ry = 0x80;
+-    if (port == 0) read_keyboard(pressed, lx, ly, rx, ry);
++    const int *const binds = port == 1 ? g_keys.pad2 : g_keys.pad;  // player 2's controller has its own lines in keys.ini (pad2_)
++    if (port == 0 && g_keys.p1_device != 1) read_keyboard(pressed, lx, ly, rx, ry);  // p1_device = controller: the keyboard does not play
+     if (pad) {
+-        for (const PadBinding &b : kPadButtons)
+-            if (b.button != SDL_CONTROLLER_BUTTON_BACK && SDL_GameControllerGetButton(pad, b.button)) pressed |= b.mask;
+         // Select, then Start opens the quick menu, and the game must get neither. So the game gets this Select late: once it has been
+         // held for 300 ms without Start, or as a short press when it is let go without Start. (Start first and then Select would
+         // already have reached the game: the way is Select first.) A Select of the keyboard (Tab) is not held back.
+@@ -782,20 +814,41 @@ void poll_port(int port) {
+             select_since[port] = 0;
+             select_combo[port] = false;
+         }
+-        if (select_to_game || static_cast<Sint32>(select_tap_until[port] - now) > 0) pressed |= kSelect;
+-        if (sel && st) pressed &= ~kStart;
+-        const auto trigger = [&](SDL_GameControllerAxis a, std::uint16_t bit, std::uint8_t &pressure) {
+-            const int v = SDL_GameControllerGetAxis(pad, a);
+-            if (v <= 2000 || (pressed & bit)) return;
+-            pressed |= bit;
+-            pressure = static_cast<std::uint8_t>(std::max(1, v * 255 / 32767));
++        const bool back_to_game = select_to_game || static_cast<Sint32>(select_tap_until[port] - now) > 0;
++        // every console button from the controller button keys.ini gives it: Back as held back above, Start not while it opens the
++        // menu, a trigger past a small dead zone (L2 and R2 also get how far it is pulled)
++        for (const PadBinding &b : kPadButtons) {
++            const int source = binds[b.action];
++            if (source == keymap::kPadLeftTrigger || source == keymap::kPadRightTrigger) {
++                const int v = SDL_GameControllerGetAxis(pad, source == keymap::kPadLeftTrigger ? SDL_CONTROLLER_AXIS_TRIGGERLEFT : SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
++                if (v <= 2000 || (pressed & b.mask)) continue;
++                pressed |= b.mask;
++                const std::uint8_t pressure = static_cast<std::uint8_t>(std::max(1, v * 255 / 32767));
++                if (b.mask == kL2) l2 = pressure;
++                if (b.mask == kR2) r2 = pressure;
++            } else if (source == SDL_CONTROLLER_BUTTON_BACK) {
++                if (back_to_game) pressed |= b.mask;
++            } else if (source == SDL_CONTROLLER_BUTTON_START) {
++                if (st && !sel) pressed |= b.mask;
++            } else if (source >= keymap::kPadStickBase) {
++                if (pad_amount(pad, source) >= 0.5) pressed |= b.mask;
++            } else if (source >= 0 && SDL_GameControllerGetButton(pad, static_cast<SDL_GameControllerButton>(source))) {
++                pressed |= b.mask;
++            }
++        }
++        // the console's sticks: each direction from the input keys.ini gives it (the default: the same direction of the same stick,
++        // which reads the axis as it is)
++        const auto stick = [&](int minus_action, int plus_action) -> std::uint8_t {
++            const int m = binds[minus_action], p = binds[plus_action];
++            if (m >= keymap::kPadStickBase && p == m + 1 && (m - keymap::kPadStickBase) % 2 == 0)
++                return axis(pad, static_cast<SDL_GameControllerAxis>((m - keymap::kPadStickBase) / 2));
++            const double v = 127.5 * (pad_amount(pad, p) - pad_amount(pad, m));
++            return static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(127.5 + v)), 0, 255));
+         };
+-        trigger(SDL_CONTROLLER_AXIS_TRIGGERLEFT, kL2, l2);
+-        trigger(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, kR2, r2);
+-        if (lx == 0x80) lx = axis(pad, SDL_CONTROLLER_AXIS_LEFTX);
+-        if (ly == 0x80) ly = axis(pad, SDL_CONTROLLER_AXIS_LEFTY);
+-        if (rx == 0x80) rx = axis(pad, SDL_CONTROLLER_AXIS_RIGHTX);
+-        if (ry == 0x80) ry = axis(pad, SDL_CONTROLLER_AXIS_RIGHTY);
++        if (lx == 0x80) lx = stick(keymap::LeftLeft, keymap::LeftRight);
++        if (ly == 0x80) ly = stick(keymap::LeftUp, keymap::LeftDown);
++        if (rx == 0x80) rx = stick(keymap::RightLeft, keymap::RightRight);
++        if (ry == 0x80) ry = stick(keymap::RightUp, keymap::RightDown);
+     }
+     if (g_menu.is_open()) g_block_input[port] = true;
+     if (g_block_input[port]) {
+@@ -1078,7 +1131,7 @@ void menu_command(quickmenu::Command c, int step) {
+             set_notice("The resolution is set by PS2_SCALE; remove it to choose here");
+             break;
+         }
+-        g_scale_next = (g_scale_next - 1 + step + 3) % 3 + 1;
++        g_scale_next = (g_scale_next - 1 + step + 4) % 4 + 1;
+         g_keys.scale = g_scale_next;
+         rewrite_keys_file([](const std::string &t) { return keymap::with_scale(t, g_scale_next); }, "resolution");
+         set_notice("Resolution " + std::to_string(g_scale_next) + "x" + (g_scale_next == g_scale_now ? "" : ": used when the game starts the next time"));
+@@ -1347,12 +1400,18 @@ void poll() {
+ }
+ 
+ void show_pixels(const std::uint32_t *rgba, std::uint32_t w, std::uint32_t h) {
++    static bool wide_shown = false;
++    const bool wide = ps2::widescreen_now();
+     if (w != g_tex_w || h != g_tex_h) {
+         if (g_texture) SDL_DestroyTexture(g_texture);
+         g_texture = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, static_cast<int>(w), static_cast<int>(h));
+-        SDL_RenderSetLogicalSize(g_renderer, static_cast<int>(w), static_cast<int>(w) * (ps2::g_options.widescreen ? 9 : 3) / (ps2::g_options.widescreen ? 16 : 4));
+         g_tex_w = w;
+         g_tex_h = h;
++        wide_shown = !wide;
++    }
++    if (wide != wide_shown) {  // the picture's shape can change while the game runs (PS2_WIDE_ONLY_IF)
++        SDL_RenderSetLogicalSize(g_renderer, static_cast<int>(w), static_cast<int>(w) * (wide ? 9 : 3) / (wide ? 16 : 4));
++        wide_shown = wide;
+     }
+     SDL_UpdateTexture(g_texture, nullptr, rgba, static_cast<int>(w * 4));
+     SDL_RenderClear(g_renderer);
+@@ -1390,8 +1449,54 @@ bool no_limit() {
+     return on;
+ }
+ 
++// PS2_PACE=clock: the frames on an even clock instead of the sound device's. Paced by the device, a frame goes on when the device
++// has taken its next block of sound (1024 samples, 21.3 ms), so frames come 21 ms apart and now and then two at once: uneven on
++// screen at 60 frames per second (and at 30). Here every frame waits for its own time, 1/59.94 s (1/50 PAL) after the last one,
++// slept to within a millisecond and then waited out exactly; the sound only nudges that clock (at most 0.5 % faster or slower,
++// toward 60 ms of sound waiting), so it neither runs dry nor piles up. Far behind (a pause, a slow stretch): the clock starts
++// again from now instead of hurrying to catch up. Over 160 ms of sound waiting, it waits for the device as without this.
++bool clock_pacing() {
++    static const bool on = ps2::os::env("PS2_PACE") == "clock";
++    return on;
++}
++
++void pace_clock() {
++    static double next = 0.0;
++    const double base = 1.0 / (ps2::g_options.pal ? 50.0 : 59.94);
++    double period = base;
++    if (g_audio) {
++        g_pipe->frame(audio_seconds());
++        const double queued = queued_ms();
++        period = base * (1.0 + std::clamp((queued - 60.0) / 60.0 * 0.005, -0.005, 0.005));
++        if (queued > 160.0) {
++            const double started = audio_seconds();
++            while (queued_ms() > 120.0 && audio_seconds() - started < 1.0) SDL_Delay(1);
++            g_pipe->note_wait(audio_seconds() - started);
++            next = 0.0;
++        }
++    }
++    const double now = audio_seconds();
++    if (next == 0.0 || now - next > 0.1) next = now;
++    next += period;
++    const double started = audio_seconds();
++    for (;;) {
++        const double left = next - audio_seconds();
++        if (left <= 0.0) break;
++        if (left > 0.002) SDL_Delay(static_cast<Uint32>((left - 0.0015) * 1000.0));
++        else std::this_thread::yield();
++    }
++    if (g_audio) {
++        g_pipe->note_wait(audio_seconds() - started);  // waiting for the clock is no slowness: no stretched sound for it
++        note_audio();
++    }
++}
++
+ void pace() {
+     if (no_limit()) return;
++    if (clock_pacing()) {
++        pace_clock();
++        return;
++    }
+     static bool stuck = false;  // the device took no sound for a second; the clock paces the game until it takes some again
+     if (g_audio && !(stuck && g_pipe->full())) {
+         // The audio device clock paces emulation: wait while more than ~80 ms of sound is waiting. The pipe times the game between
+@@ -1743,6 +1848,14 @@ bool open_window(bool fullscreen) {
+     g_beep_on = no_beep.empty() || no_beep == "0";
+     g_pad_log = !pad_log.empty() && pad_log != "0";
+     if (!script.empty()) SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
++#ifdef _WIN32
++    // Draw in the screen's own pixels on a scaled display (125%, 150%...), as the "Override high DPI scaling behavior: Application"
++    // compatibility setting would. Without it Windows hands the program a smaller, made-up screen and stretches the picture up,
++    // which blurs it, fullscreen too. Per monitor: a window moved to a screen with another scale stays sharp. The window's size
++    // is then in real pixels (SDL_HINT_WINDOWS_DPI_SCALING stays off), as everything below already counts it. The environment
++    // variable SDL_WINDOWS_DPI_AWARENESS (unaware, system, permonitor) still overrides it.
++    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
++#endif
+     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
+         std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
+         return false;
+@@ -1770,7 +1883,7 @@ bool open_window(bool fullscreen) {
+         ps2::os::set_env("PS2_SCALE", std::to_string(g_keys.scale));
+         std::fprintf(stderr, "[video] resolution %dx from %s (scale = %d)\n", g_keys.scale, g_keys_path.c_str(), g_keys.scale);
+     }
+-    g_scale_now = std::clamp(std::atoi(ps2::os::env("PS2_SCALE").c_str()), 1, 3);
++    g_scale_now = std::clamp(std::atoi(ps2::os::env("PS2_SCALE").c_str()), 1, 4);
+     g_scale_next = g_scale_locked ? g_scale_now : (g_keys.scale >= 1 ? g_keys.scale : g_scale_now);
+     Uint32 flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0u);
+ #ifdef __APPLE__
+@@ -1778,7 +1891,19 @@ bool open_window(bool fullscreen) {
+ #endif
+     g_game_title = ps2::os::env("PS2_WINDOW_TITLE");
+     const std::string initial_title = g_game_title.empty() ? g_speed_title : g_game_title + "   |   " + g_speed_title;
+-    g_window = SDL_CreateWindow(initial_title.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, ps2::g_options.widescreen ? 1280 : 960, 720, flags);
++    // The window's first size: 720 lines at 100%, scaled with the screen (1080 at 150%) so that it looks the same size on any
++    // scale now that it counts real pixels, and kept inside the screen's usable area.
++    int win_w = ps2::g_options.widescreen ? 1280 : 960, win_h = 720;
++#ifdef _WIN32
++    float dpi = 0.0f;
++    SDL_Rect usable{};
++    if (SDL_GetDisplayDPI(0, nullptr, &dpi, nullptr) == 0 && dpi > 96.5f && SDL_GetDisplayUsableBounds(0, &usable) == 0) {
++        const float scale = std::min({dpi / 96.0f, usable.w * 0.9f / win_w, usable.h * 0.9f / win_h});
++        if (scale > 1.0f) win_w = static_cast<int>(win_w * scale), win_h = static_cast<int>(win_h * scale);
++        std::fprintf(stderr, "[window] display scale %.0f%%, window %dx%d\n", dpi / 96.0f * 100.0f, win_w, win_h);
++    }
++#endif
++    g_window = SDL_CreateWindow(initial_title.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, flags);
+     if (!g_window) {
+         std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
+         return false;
+@@ -1791,6 +1916,19 @@ bool open_window(bool fullscreen) {
+     if (SDL_GetWindowWMInfo(g_window, &wm_info) && wm_info.subsystem == SDL_SYSWM_WINDOWS) {
+         ShowWindow(static_cast<HWND>(wm_info.info.win.window), SW_SHOWNORMAL);
+         SetForegroundWindow(static_cast<HWND>(wm_info.info.win.window));
++        // PS2_WINDOW_ICON=<.exe or .ico>: the window's title bar and taskbar icon, taken from that file (a launcher gives its own
++        // program, so the game shows the launcher's icon)
++        if (const std::string icon = ps2::os::env("PS2_WINDOW_ICON"); !icon.empty()) {
++            const int n = MultiByteToWideChar(CP_UTF8, 0, icon.c_str(), -1, nullptr, 0);
++            std::wstring wide(static_cast<std::size_t>(n > 0 ? n : 1), L'\0');
++            MultiByteToWideChar(CP_UTF8, 0, icon.c_str(), -1, wide.data(), n);
++            HICON big = nullptr, small = nullptr;
++            if (ExtractIconExW(wide.c_str(), 0, &big, &small, 1) > 0) {
++                const HWND hwnd = static_cast<HWND>(wm_info.info.win.window);
++                if (big) SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(big));
++                if (small) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small));
++            }
++        }
+     }
+ #endif
+     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+@@ -1835,6 +1973,7 @@ bool open_window(bool fullscreen) {
+     }
+     for (int i = 0; i < SDL_NumJoysticks(); ++i)
+         if (SDL_IsGameController(i)) open_pad(i);
++    g_pads_opened = true;
+     SDL_ShowCursor(SDL_DISABLE);  // no pointer over the game (the title bar and the window's edge still show it)
+     g_notice_text = kStartNotice;
+     std::fprintf(stderr, "[menu] the quick menu: F1%s on the keyboard, hold Select then press Start (or Guide) on a controller\n",
+diff --git a/runtime/include/ps2/system.hpp b/runtime/include/ps2/system.hpp
+index d0d445f..06951ad 100644
+--- a/runtime/include/ps2/system.hpp
++++ b/runtime/include/ps2/system.hpp
+@@ -21,6 +21,7 @@ struct Press {
+     std::uint32_t frames;
+     std::uint16_t buttons;
+     std::uint8_t stick = 0;
++    std::uint8_t pad = 0;  // 1: the second controller (button names with a "p2" in front, --press 100:p2cross)
+ };
+ 
+ struct Patch {
+@@ -125,6 +126,8 @@ bool load_state(const std::uint8_t *data, std::size_t size);
+ bool halted();
+ const std::string &halt_reason();
+ std::uint64_t frame_count();
++// The picture's shape now: --widescreen, unless PS2_WIDE_ONLY_IF says this part of the game is not widescreen (system.cpp).
++bool widescreen_now();
+ 
+ bool display_frame(std::vector<std::uint32_t> &rgba, std::uint32_t &width, std::uint32_t &height);
+ 
+diff --git a/runtime/src/dmac.cpp b/runtime/src/dmac.cpp
+index d1ef745..2869c38 100644
+--- a/runtime/src/dmac.cpp
++++ b/runtime/src/dmac.cpp
+@@ -542,6 +542,11 @@ void write(std::uint32_t a, std::uint32_t v) {
+         switch (a - kBase[ch]) {
+         case 0x00: {
+             const bool was = c.chcr & 0x100u;
++            // While a channel runs only STR can be written ("fields other than STR can only be written to when the DMA is stopped",
++            // as PCSX2 does too). Midnight Club II stops its IPU input chain with CHCR = 1, reads CHCR back and later restarts the
++            // transfer with what it read plus STR: taking the whole word dropped chain mode, so the restart ran in normal mode and
++            // the chain's next tag (the wrap to the start of the film's ring buffer) was never sent, cutting 140 KB out of the film.
++            if (was) v = (c.chcr & ~0x100u) | (v & 0x100u);
+             c.chcr = v;
+             if (!(v & 0x100u)) {
+                 c.paused = false;
+diff --git a/runtime/src/gs/gif.cpp b/runtime/src/gs/gif.cpp
+index ead8386..8b85108 100644
+--- a/runtime/src/gs/gif.cpp
++++ b/runtime/src/gs/gif.cpp
+@@ -329,11 +329,168 @@ void end_runaway_kick(std::uint32_t address) {
+     gs::queue::post(gs::queue::kGif, static_cast<std::uint32_t>(1 | kEndPacket), address, nullptr, 0);
+ }
+ 
++// A HUD drawn for a 4:3 picture, kept in 4:3 shapes on a 16:9 one. A game patch (Midnight Club II's mc2-options/hud43.py)
++// brackets the drawing of each HUD part with VIF1 MARK commands: bit 15 on, bits 8-12 the part, bits 0-1 the side it belongs
++// to (1 left edge, 2 centre, 3 right edge; 0: the third of the frame the part's first drawing is in; PS2_HUD_LOG=1 prints each
++// part's box, =2 every transfer's too). While a mark is on, the x of every vertex and
++// of the scissor box that goes out on PATH1/PATH2 is moved to A + (x - A) * 3/4, A the side's x: the 16:9 picture widens the
++// frame by 4/3 again, so the part keeps its shape and its distance from that edge. MARK 0 ends it. Nothing else uses MARK
++// in that game; in a game without the patch no mark is ever on and this costs one test per transfer.
++namespace {
++
++struct HudSqueeze {
++    std::uint32_t mark = 0;
++    int anchor = -1;                     // window pixels, -1: log only
++    std::int32_t ofx[2] = {0x7000, 0x7000};  // XYOFFSET_1/2 x (12.4), seen in the stream; 1792 pixels until then
++    Path paths[3];
++    std::int32_t lo = 1 << 30, hi = -(1 << 30);
++    std::uint32_t vertices = 0;
++    std::vector<std::uint8_t> copy;
++} g_hud;
++
++bool hud_log() {
++    static const bool on = std::getenv("PS2_HUD_LOG") != nullptr;
++    return on;
++}
++
++std::uint32_t hud_x(std::uint32_t x) {  // a vertex x, 12.4 in primitive coordinates
++    const std::int32_t window = (static_cast<std::int32_t>(x) - g_hud.ofx[0]) >> 4;
++    g_hud.lo = std::min(g_hud.lo, window), g_hud.hi = std::max(g_hud.hi, window);
++    ++g_hud.vertices;
++    if (g_hud.anchor < 0) return x;
++    const std::int32_t a = (g_hud.anchor << 4) + g_hud.ofx[0];
++    return static_cast<std::uint32_t>(std::clamp(a + (((static_cast<std::int32_t>(x) - a) * 3) >> 2), 0, 0xFFFF));
++}
++
++std::uint64_t hud_scissor(std::uint64_t v) {  // SCISSOR: x0 bits 0-10, x1 (inclusive) bits 16-26, window pixels
++    if (g_hud.anchor < 0) return v;
++    const std::int32_t a = g_hud.anchor, x0 = static_cast<std::int32_t>(v & 0x7FFu), x1 = static_cast<std::int32_t>((v >> 16) & 0x7FFu);
++    // A box over the whole 512-pixel frame clips nothing of the part, and it is how the game puts the scissor back after a part
++    // that drew in a box of its own: squeezed (toward the centre, 64..447) it stayed in force for the parts drawn after it and cut
++    // the race timer and the position to their first characters. So it is left as it is.
++    if (x0 == 0 && x1 >= 511) return v;
++    const std::int32_t n0 = std::clamp(a + (((x0 - a) * 3) >> 2), 0, 2047), n1 = std::clamp(a + (((x1 + 1 - a) * 3) >> 2) - 1, 0, 2047);
++    return (v & ~0x07FF07FFull) | static_cast<std::uint64_t>(n0) | (static_cast<std::uint64_t>(n1) << 16);
++}
++
++bool is_xyz(std::uint32_t reg) { return reg == 0x4 || reg == 0x5 || reg == 0xC || reg == 0xD; }
++
++void hud_squeeze(int path, std::uint8_t *data, std::uint32_t qwc) {
++    Path &p = g_hud.paths[path];
++    for (std::uint32_t i = 0; i < qwc; ++i) {
++        std::uint8_t *at = data + static_cast<std::size_t>(i) * 16;
++        std::uint64_t d0, d1;
++        std::memcpy(&d0, at, 8);
++        std::memcpy(&d1, at + 8, 8);
++        if (!p.active) {
++            p.nloop = static_cast<std::uint32_t>(d0) & 0x7FFFu;
++            p.flg = static_cast<std::uint32_t>(d0 >> 58) & 3u;
++            p.nreg = static_cast<std::uint32_t>(d0 >> 60) & 0xFu;
++            if (!p.nreg) p.nreg = 16;
++            p.regs = d1;
++            p.loop = p.reg = 0;
++            p.active = p.nloop != 0;
++            continue;
++        }
++        if (p.flg == 0) {
++            const std::uint32_t reg = static_cast<std::uint32_t>(p.regs >> (p.reg * 4)) & 0xFu;
++            if (is_xyz(reg)) {
++                d0 = (d0 & ~0xFFFFull) | hud_x(static_cast<std::uint32_t>(d0 & 0xFFFFu));
++            } else if (reg == 0xE) {
++                const std::uint32_t address = at[8];
++                if (is_xyz(address)) d0 = (d0 & ~0xFFFFull) | hud_x(static_cast<std::uint32_t>(d0 & 0xFFFFu));
++                else if (address == 0x18 || address == 0x19) g_hud.ofx[address - 0x18] = static_cast<std::int32_t>(d0 & 0xFFFFu);
++                else if (address == 0x40 || address == 0x41) d0 = hud_scissor(d0);
++            }
++            std::memcpy(at, &d0, 8);
++            if (++p.reg >= p.nreg) {
++                p.reg = 0;
++                if (++p.loop >= p.nloop) p.active = false;
++            }
++        } else if (p.flg == 1) {
++            std::uint64_t half[2] = {d0, d1};
++            for (int k = 0; k < 2 && p.active; ++k) {
++                const std::uint32_t reg = static_cast<std::uint32_t>(p.regs >> (p.reg * 4)) & 0xFu;
++                if (is_xyz(reg)) half[k] = (half[k] & ~0xFFFFull) | hud_x(static_cast<std::uint32_t>(half[k] & 0xFFFFu));
++                if (++p.reg >= p.nreg) {
++                    p.reg = 0;
++                    if (++p.loop >= p.nloop) p.active = false;
++                }
++            }
++            std::memcpy(at, half, 16);
++        } else {
++            const std::uint32_t run = std::min(qwc - i, p.nloop - p.loop);
++            p.loop += run;
++            i += run - 1;
++            if (p.loop >= p.nloop) p.active = false;
++        }
++    }
++}
++
++}  // namespace
++
++void hud_mark(std::uint32_t value) {
++    // A MARK of the game's own leaves a HUD part's mark as it is: only the patch's values (bit 15 on, or 0 after the part) are
++    // meant here. Smuggler's Run 2 sends a MARK (513..1023) with every texture it waits for, inside the HUD's parts too, which
++    // ended each part's mark before it had drawn anything.
++    if (value && !(value & 0x8000u)) return;
++    if ((g_hud.mark & 0x8000u) && hud_log())
++        std::fprintf(stderr, "[hud] part %u side %u: x %d..%d, %u vertices\n", (g_hud.mark >> 8) & 0x1Fu, g_hud.mark & 3u, g_hud.lo, g_hud.hi, g_hud.vertices);
++    g_hud.mark = value;
++    if (!(value & 0x8000u)) return;
++    // Until the HUD sets XYOFFSET itself, the frame is taken as centred in the GS's 4096-pixel space for its width (MC1Recomp:
++    // Midnight Club sets it outside the HUD's parts, for a 640-pixel frame, 0x6C00; the old fixed 0x7000 is a 512-pixel one).
++    static const bool offset_default = [] {
++        const char *w = std::getenv("PS2_HUD_WIDTH");
++        const int v = w ? std::atoi(w) : 0;
++        if (v > 0) g_hud.ofx[0] = g_hud.ofx[1] = (2048 - v / 2) << 4;
++        return true;
++    }();
++    (void)offset_default;
++    // PS2_HUD_WIDTH: the frame's width in pixels (default 512, Midnight Club II; MC1Recomp: Midnight Club draws 640)
++    static const int width = [] { const char *w = std::getenv("PS2_HUD_WIDTH"); const int v = w ? std::atoi(w) : 0; return v > 0 ? v : 512; }();
++    const int kSides[4] = {-2, 0, width / 2, width};  // -2: the part's first transfer picks the side (transfer below)
++    g_hud.anchor = kSides[value & 3u];
++    for (Path &p : g_hud.paths) p = Path{};
++    g_hud.lo = 1 << 30, g_hud.hi = -(1 << 30), g_hud.vertices = 0;
++}
++
+ void transfer(int path, const std::uint8_t *data, std::uint32_t qwc) {
+     if (path & kEndPacket) [[unlikely]] {  // the message above, should it come through the vector thread's queue
+         end_runaway_kick(qwc);
+         return;
+     }
++    if ((g_hud.mark & 0x8000u) && path != 3 && qwc) [[unlikely]] {
++        g_hud.copy.assign(data, data + static_cast<std::size_t>(qwc) * 16);
++        static const bool each = std::getenv("PS2_HUD_LOG") && std::getenv("PS2_HUD_LOG")[0] == '2';  // PS2_HUD_LOG=2: every transfer too
++        const std::int32_t lo = g_hud.lo, hi = g_hud.hi;
++        if (g_hud.anchor == -2) {
++            // side 0: measure this transfer without changing it, then take the third of the frame its middle is in
++            const Path saved = g_hud.paths[path];
++            const std::uint32_t vertices = g_hud.vertices;
++            g_hud.anchor = -1;
++            g_hud.lo = 1 << 30, g_hud.hi = -(1 << 30);
++            hud_squeeze(path, g_hud.copy.data(), qwc);
++            if (g_hud.lo <= g_hud.hi) {
++                const std::int32_t middle = (g_hud.lo + g_hud.hi) / 2;
++                static const int width = [] { const char *w = std::getenv("PS2_HUD_WIDTH"); const int v = w ? std::atoi(w) : 0; return v > 0 ? v : 512; }();
++                g_hud.anchor = middle < width / 3 ? 0 : middle > width * 2 / 3 ? width : width / 2;
++                if (hud_log()) std::fprintf(stderr, "[hud]   part %u: side picked from x %d..%d -> %d\n", (g_hud.mark >> 8) & 0x1Fu, g_hud.lo, g_hud.hi, g_hud.anchor);
++            } else {
++                g_hud.anchor = -2;  // nothing drawn yet: the next transfer decides
++            }
++            g_hud.paths[path] = saved;
++            g_hud.vertices = vertices;
++            g_hud.lo = lo, g_hud.hi = hi;
++        }
++        if (each) g_hud.lo = 1 << 30, g_hud.hi = -(1 << 30);
++        hud_squeeze(path, g_hud.copy.data(), qwc);
++        if (each) {
++            if (g_hud.lo <= g_hud.hi) std::fprintf(stderr, "[hud]   part %u path %d: x %d..%d\n", (g_hud.mark >> 8) & 0x1Fu, path, g_hud.lo, g_hud.hi);
++            g_hud.lo = std::min(lo, g_hud.lo), g_hud.hi = std::max(hi, g_hud.hi);
++        }
++        data = g_hud.copy.data();
++    }
+     Held &h = g_held;
+     if (!hold_here()) {
+         out(path, data, qwc);
+diff --git a/runtime/src/gs/gif.hpp b/runtime/src/gs/gif.hpp
+index a8c8aae..9e5bf77 100644
+--- a/runtime/src/gs/gif.hpp
++++ b/runtime/src/gs/gif.hpp
+@@ -27,5 +27,7 @@ void set_path3_masked(bool masked);
+ void drop_held();
+ // VIF1 has run out of work (its DMA ended), so an unmasked PATH3 has the GIF to itself
+ void vif1_idle();
++// VIF1 MARK on the thread that sends PATH1/PATH2 on: a HUD patch's "squeeze this part to 4:3" bracket (gif.cpp)
++void hud_mark(std::uint32_t value);
+ 
+ }
+diff --git a/runtime/src/gs/gpu/blit.wgsl b/runtime/src/gs/gpu/blit.wgsl
+index ae5f346..b4c8663 100644
+--- a/runtime/src/gs/gpu/blit.wgsl
++++ b/runtime/src/gs/gpu/blit.wgsl
+@@ -195,3 +195,118 @@ fn fs(in: VertexOut) -> @location(0) vec4<f32> {
+     if ((blit.options & 1u) != 0u) { c = edge_aa(in.uv, c); }
+     return vec4<f32>(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+ }
++
++// FSR (PS2_FSR=1, gpu.cpp): AMD FidelityFX Super Resolution 1.0, first pass, EASU (edge adaptive spatial upsampling), written
++// after AMD's published ffx_fsr1.h (MIT licence, Copyright (c) 2021 Advanced Micro Devices, Inc.), its 32-bit float path. It draws
++// the picture at the window's size into a texture of its own; the second pass, RCAS (gpu.cpp kRcasShader), sharpens it onto the
++// screen. A window smaller than the drawn picture is not what EASU is for: there it gives the plain smooth blend.
++fn easu_luma(c: vec3<f32>) -> f32 { return c.b * 0.5 + (c.r * 0.5 + c.g); }
++
++fn easu_set(w: f32, la: f32, lb: f32, lc: f32, ld: f32, le: f32, dir: ptr<function, vec2<f32>>, len: ptr<function, f32>) {
++    let dc = ld - lc;
++    let cb = lc - lb;
++    var lenx = max(abs(dc), abs(cb));
++    lenx = 1.0 / max(lenx, 1e-8);
++    let dirx = ld - lb;
++    lenx = clamp(abs(dirx) * lenx, 0.0, 1.0);
++    lenx = lenx * lenx;
++    let ec = le - lc;
++    let ca = lc - la;
++    var leny = max(abs(ec), abs(ca));
++    leny = 1.0 / max(leny, 1e-8);
++    let diry = le - la;
++    leny = clamp(abs(diry) * leny, 0.0, 1.0);
++    leny = leny * leny;
++    *dir = *dir + vec2<f32>(dirx, diry) * w;
++    *len = *len + (lenx + leny) * w;
++}
++
++fn easu_tap(off: vec2<f32>, dir: vec2<f32>, len2: vec2<f32>, lob: f32, clp: f32, c: vec3<f32>, acc: ptr<function, vec4<f32>>) {
++    var v = vec2<f32>(off.x * dir.x + off.y * dir.y, off.x * -dir.y + off.y * dir.x);
++    v = v * len2;
++    let d2 = min(v.x * v.x + v.y * v.y, clp);
++    var wb = 0.4 * d2 - 1.0;
++    var wa = lob * d2 - 1.0;
++    wb = wb * wb;
++    wa = wa * wa;
++    wb = 1.5625 * wb - 0.5625;
++    let w = wb * wa;
++    *acc = *acc + vec4<f32>(c * w, w);
++}
++
++@fragment
++fn fs_easu(in: VertexOut) -> @location(0) vec4<f32> {
++    let size = vec2<f32>(f32(blit.width), f32(blit.height));
++    let out_size = vec2<f32>(f32(blit.out_width), f32(blit.out_height));
++    if (out_size.x < size.x || out_size.y < size.y) {
++        return vec4<f32>(clamp(scene(in.position.xy / out_size), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
++    }
++    var pp = in.position.xy * size / out_size - 0.5;
++    let fp = floor(pp);
++    pp = pp - fp;
++    let x = i32(fp.x);
++    let y = i32(fp.y);
++    //    b c
++    //  e f g h
++    //  i j k l
++    //    n o
++    let b = scene_texel(x, y - 1);
++    let c = scene_texel(x + 1, y - 1);
++    let e = scene_texel(x - 1, y);
++    let f = scene_texel(x, y);
++    let g = scene_texel(x + 1, y);
++    let h = scene_texel(x + 2, y);
++    let i = scene_texel(x - 1, y + 1);
++    let j = scene_texel(x, y + 1);
++    let k = scene_texel(x + 1, y + 1);
++    let l = scene_texel(x + 2, y + 1);
++    let n = scene_texel(x, y + 2);
++    let o = scene_texel(x + 1, y + 2);
++    let bl = easu_luma(b);
++    let cl = easu_luma(c);
++    let el = easu_luma(e);
++    let fl = easu_luma(f);
++    let gl = easu_luma(g);
++    let hl = easu_luma(h);
++    let il = easu_luma(i);
++    let jl = easu_luma(j);
++    let kl = easu_luma(k);
++    let ll = easu_luma(l);
++    let nl = easu_luma(n);
++    let ol = easu_luma(o);
++    var dir = vec2<f32>(0.0);
++    var len = 0.0;
++    easu_set((1.0 - pp.x) * (1.0 - pp.y), bl, el, fl, gl, jl, &dir, &len);
++    easu_set(pp.x * (1.0 - pp.y), cl, fl, gl, hl, kl, &dir, &len);
++    easu_set((1.0 - pp.x) * pp.y, fl, il, jl, kl, nl, &dir, &len);
++    easu_set(pp.x * pp.y, gl, jl, kl, ll, ol, &dir, &len);
++    let dir2 = dir * dir;
++    var dirr = dir2.x + dir2.y;
++    let zero = dirr < 1.0 / 32768.0;
++    dirr = select(inverseSqrt(max(dirr, 1e-30)), 1.0, zero);
++    dir.x = select(dir.x, 1.0, zero);
++    dir = dir * dirr;
++    len = len * 0.5;
++    len = len * len;
++    let stretch = (dir.x * dir.x + dir.y * dir.y) / max(abs(dir.x), abs(dir.y));
++    let len2 = vec2<f32>(1.0 + (stretch - 1.0) * len, 1.0 - 0.5 * len);
++    let lob = 0.5 + ((1.0 / 4.0 - 0.04) - 0.5) * len;
++    let clp = 1.0 / lob;
++    var acc = vec4<f32>(0.0);
++    easu_tap(vec2<f32>(0.0, -1.0) - pp, dir, len2, lob, clp, b, &acc);
++    easu_tap(vec2<f32>(1.0, -1.0) - pp, dir, len2, lob, clp, c, &acc);
++    easu_tap(vec2<f32>(-1.0, 1.0) - pp, dir, len2, lob, clp, i, &acc);
++    easu_tap(vec2<f32>(0.0, 1.0) - pp, dir, len2, lob, clp, j, &acc);
++    easu_tap(vec2<f32>(0.0, 0.0) - pp, dir, len2, lob, clp, f, &acc);
++    easu_tap(vec2<f32>(-1.0, 0.0) - pp, dir, len2, lob, clp, e, &acc);
++    easu_tap(vec2<f32>(1.0, 1.0) - pp, dir, len2, lob, clp, k, &acc);
++    easu_tap(vec2<f32>(2.0, 1.0) - pp, dir, len2, lob, clp, l, &acc);
++    easu_tap(vec2<f32>(2.0, 0.0) - pp, dir, len2, lob, clp, h, &acc);
++    easu_tap(vec2<f32>(1.0, 0.0) - pp, dir, len2, lob, clp, g, &acc);
++    easu_tap(vec2<f32>(1.0, 2.0) - pp, dir, len2, lob, clp, o, &acc);
++    easu_tap(vec2<f32>(0.0, 2.0) - pp, dir, len2, lob, clp, n, &acc);
++    let lo = min(min(f, g), min(j, k));
++    let hi = max(max(f, g), max(j, k));
++    let pix = clamp(acc.rgb / acc.w, lo, hi);
++    return vec4<f32>(clamp(pix, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
++}
+diff --git a/runtime/src/gs/gpu/gpu.cpp b/runtime/src/gs/gpu/gpu.cpp
+index 8f3e3f7..c1fb96b 100644
+--- a/runtime/src/gs/gpu/gpu.cpp
++++ b/runtime/src/gs/gpu/gpu.cpp
+@@ -45,7 +45,7 @@ constexpr std::uint32_t kParamStride = 256;
+ constexpr std::uint32_t kClutSlots = 2048;
+ constexpr std::uint32_t kClutEntries = 512;
+ constexpr std::uint32_t kPrimWords = 28;
+-constexpr std::uint32_t kSetupWords = 40;  // 25 fields, then the texture, frame and depth formats as the shader needs them (fmt_words)
++constexpr std::uint32_t kSetupWords = 42;  // 25 fields, then the texture, frame and depth formats as the shader needs them (fmt_words), then DIMX
+ constexpr std::uint32_t kMipWords = 8;     // the mipmap words of a setup, in a table beside the setups (Batch::mips, make_mip)
+ constexpr std::uint32_t kDecodedWords = 4u << 20;
+ constexpr std::uint32_t kDecodePrims = 64;
+@@ -65,6 +65,59 @@ std::uint32_t g_surface_width = 0, g_surface_height = 0;
+ WGPURenderPipeline g_blit = nullptr;
+ WGPUBindGroup g_blit_group = nullptr;
+ WGPUBuffer g_blit_params = nullptr;
++
++// FSR (PS2_FSR=1): AMD FidelityFX Super Resolution 1.0 in place of the picture look. Pass one (blit.wgsl fs_easu) enlarges the
++// picture to the window's size into g_fsr_texture, pass two (kRcasShader, RCAS) sharpens that onto the screen.
++const bool g_fsr = std::getenv("PS2_FSR") && std::getenv("PS2_FSR")[0] == '1';
++WGPURenderPipeline g_fsr_easu = nullptr, g_fsr_rcas = nullptr, g_fsr_rcas_dump = nullptr;
++WGPUBindGroupLayout g_fsr_layout = nullptr;
++WGPUTexture g_fsr_texture = nullptr;
++WGPUTextureView g_fsr_view = nullptr;
++WGPUBindGroup g_fsr_group = nullptr;
++std::uint32_t g_fsr_width = 0, g_fsr_height = 0;
++
++// RCAS (robust contrast adaptive sharpening), written after AMD's published ffx_fsr1.h (MIT licence, Copyright (c) 2021 Advanced
++// Micro Devices, Inc.), its 32-bit float path without the noise removal: each pixel is pushed away from its four neighbours by as
++// much as the neighbourhood allows without going past black or white (no halos), times the sharpness (0.2 stops, AMD's default).
++const char kRcasShader[] = R"(
++struct Blit { width: u32, height: u32, current: u32, previous: u32, blend: u32, out_width: u32, out_height: u32, options: u32, }
++@group(0) @binding(0) var src: texture_2d<f32>;
++@group(0) @binding(1) var<uniform> blit: Blit;
++struct VertexOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, }
++@vertex
++fn vs(@builtin(vertex_index) i: u32) -> VertexOut {
++    let p = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
++    var o: VertexOut;
++    o.position = vec4<f32>(p * 2.0 - 1.0, 0.0, 1.0);
++    o.uv = vec2<f32>(p.x, 1.0 - p.y);
++    return o;
++}
++fn at(p: vec2<i32>) -> vec3<f32> {
++    let size = vec2<i32>(textureDimensions(src));
++    return textureLoad(src, clamp(p, vec2<i32>(0), size - 1), 0).rgb;
++}
++@fragment
++fn fs(in: VertexOut) -> @location(0) vec4<f32> {
++    let size = vec2<f32>(textureDimensions(src));
++    let q = vec2<i32>(min(floor(in.uv * size), size - 1.0));
++    let b = at(q + vec2<i32>(0, -1));
++    let d = at(q + vec2<i32>(-1, 0));
++    let e = at(q);
++    let f = at(q + vec2<i32>(1, 0));
++    let h = at(q + vec2<i32>(0, 1));
++    let mn4 = min(min(b, d), min(f, h));
++    let mx4 = max(max(b, d), max(f, h));
++    let hit_min = min(mn4, e) / max(4.0 * mx4, vec3<f32>(1e-5));
++    let hit_max = (1.0 - max(mx4, e)) / min(4.0 * min(mn4, e) - 4.0, vec3<f32>(-1e-5));
++    let lobe_rgb = max(-hit_min, hit_max);
++    let sharpness = exp2(-0.2);
++    let lobe = max(-(0.25 - 1.0 / 16.0), min(max(lobe_rgb.r, max(lobe_rgb.g, lobe_rgb.b)), 0.0)) * sharpness;
++    let c = (lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0);
++    return vec4<f32>(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
++}
++)";
++
++void fsr_size(std::uint32_t width, std::uint32_t height);  // below, after g_device
+ // The overlay (overlay.hpp): the quick menu's panel, drawn over the game's picture in the present pass with alpha blending. Its pixels
+ // sit in a storage buffer like everything else here (no texture: the same code on every backend and in the browser build).
+ struct Overlay {
+@@ -81,6 +134,24 @@ bool g_have_previous = false;
+ std::uint32_t g_scale = 1, g_copy_words = 1u << 20, g_field_words = 1u << 19;
+ 
+ std::uint32_t field_base(std::uint32_t field) { return g_copy_words + (field & 1u) * g_field_words; }
++std::uint32_t true_color_base() { return g_copy_words + 2u * g_field_words; }
++
++// True colour (gpu.hpp, true_color_copy): the 32-bit picture kept at the copy into the 16-bit buffer the screen shows.
++struct TrueColor {
++    bool ready = false;           // a picture is in the scratch buffer at true_color_base()
++    std::uint32_t dst = 0;        // the 16-bit buffer the copy went to (blocks)
++    std::uint32_t fbw = 0, dbx = 0, dby = 0, width = 0, height = 0;
++    bool halved = false;
++    std::uint64_t frame = ~0ull;  // GS frame of the last picture kept (one per copy, which is drawn in strips)
++} g_true;
++DisplaySource g_last_shown{};     // what the screen showed last (its size is the size the copy is kept at)
++bool g_last_shown_valid = false;
++
++// The picture of the screen comes from the kept 32-bit one: true colour is on, it is ready, and it is for this buffer at this size.
++bool true_color_for(const DisplaySource &src) {
++    return true_color_on() && g_true.ready && src.fbp == g_true.dst && src.fbw == g_true.fbw && src.dbx == g_true.dbx && src.dby == g_true.dby &&
++           src.width == g_true.width && src.height == g_true.height && src.halved == g_true.halved && !src.overlay.active;
++}
+ 
+ bool g_timestamps = false;
+ WGPUQuerySet g_queries = nullptr;
+@@ -93,6 +164,8 @@ WGPUBuffer g_vram = nullptr, g_tables = nullptr, g_params = nullptr, g_data = nu
+ std::uint32_t g_decoded_used = 0;
+ bool g_rendered[512] = {};
+ bool g_decode = true;
++bool g_rename = true;    // texture renaming (rename_reads); PS2_RENAME=0 turns it off
++bool g_renamed = false;  // the pending run has setups decoded before its end (submit() must not leave it behind its decodes)
+ std::uint64_t g_params_size = 0, g_data_size = 0;
+ WGPUBindGroupLayout g_layout = nullptr;
+ WGPUPipelineLayout g_pipeline_layout = nullptr;
+@@ -105,6 +178,33 @@ std::thread *g_raster_mip_thread = nullptr;  // never destroyed: a running threa
+ std::atomic<bool> g_raster_mip_ready{false};
+ std::mutex g_raster_mip_lock;
+ 
++// The FSR texture at the size the picture takes in the window (made again when that changes).
++void fsr_size(std::uint32_t width, std::uint32_t height) {
++    width = std::max(width, 1u), height = std::max(height, 1u);
++    if (g_fsr_texture && width == g_fsr_width && height == g_fsr_height) return;
++    if (g_fsr_group) wgpuBindGroupRelease(g_fsr_group);
++    if (g_fsr_view) wgpuTextureViewRelease(g_fsr_view);
++    if (g_fsr_texture) wgpuTextureRelease(g_fsr_texture);
++    WGPUTextureDescriptor td = WGPU_TEXTURE_DESCRIPTOR_INIT;
++    td.size = {width, height, 1};
++    td.format = WGPUTextureFormat_RGBA8Unorm;
++    td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopySrc;
++    g_fsr_texture = wgpuDeviceCreateTexture(g_device, &td);
++    g_fsr_view = wgpuTextureCreateView(g_fsr_texture, nullptr);
++    WGPUBindGroupEntry be[2] = {WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT};
++    be[0].binding = 0;
++    be[0].textureView = g_fsr_view;
++    be[1].binding = 1;
++    be[1].buffer = g_blit_params;
++    be[1].size = 32;
++    WGPUBindGroupDescriptor bd = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
++    bd.layout = g_fsr_layout;
++    bd.entryCount = 2;
++    bd.entries = be;
++    g_fsr_group = wgpuDeviceCreateBindGroup(g_device, &bd);
++    g_fsr_width = width, g_fsr_height = height;
++}
++
+ struct Command {
+     Pipeline pipeline;
+     std::uint32_t x, y;
+@@ -284,10 +384,40 @@ struct PreOp {
+     std::uint32_t rec[12] = {};
+     Range range;
+     std::uint32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0, image = 0;
++    std::vector<std::uint16_t> blocks;  // the 256-byte blocks it writes (upload) or reads (CLUT load), sorted; empty: not worked out
+ };
+ 
++// The blocks a small rectangle of a buffer touches, at most 64 (op_blocks): a palette and the texture right after it share an 8 KB
++// page but not a block, and with only the page compared every texture's palette upload and texture upload went in dispatches of their own.
++void op_blocks(PreOp &op, std::uint32_t psm, std::uint32_t bp, std::uint32_t bw, std::uint32_t x0, std::uint32_t y0, std::uint32_t x1, std::uint32_t y1) {
++    std::uint32_t cw, ch;  // the pixels of one block
++    switch (psm) {
++    case PSMCT32: case PSMCT24: case PSMZ32: case PSMZ24: cw = 8, ch = 8; break;
++    case PSMCT16: case PSMCT16S: case PSMZ16: case PSMZ16S: cw = 16, ch = 8; break;
++    case PSMT8: cw = 16, ch = 16; break;
++    case PSMT4: cw = 32, ch = 16; break;
++    default: return;
++    }
++    if (x1 < x0 || y1 < y0 || ((x1 / cw - x0 / cw + 1) * (y1 / ch - y0 / ch + 1)) > 64) return;
++    for (std::uint32_t y = y0 - y0 % ch; y <= y1; y += ch)
++        for (std::uint32_t x = x0 - x0 % cw; x <= x1; x += cw) op.blocks.push_back(static_cast<std::uint16_t>(ps2::gs::pixel_block(psm, bp, bw, x & 0x7FFu, y & 0x7FFu)));
++    std::sort(op.blocks.begin(), op.blocks.end());
++    op.blocks.erase(std::unique(op.blocks.begin(), op.blocks.end()), op.blocks.end());
++}
++
++bool blocks_meet(const PreOp &a, const PreOp &b) {
++    std::size_t i = 0, j = 0;
++    while (i < a.blocks.size() && j < b.blocks.size()) {
++        if (a.blocks[i] == b.blocks[j]) return true;
++        if (a.blocks[i] < b.blocks[j]) ++i;
++        else ++j;
++    }
++    return false;
++}
++
+ bool uploads_overlap(const PreOp &a, const PreOp &b) {
+     if (a.image && a.image == b.image) return false;
++    if (!a.blocks.empty() && !b.blocks.empty()) return blocks_meet(a, b);
+     if (!a.range.overlaps(b.range.lo, b.range.hi)) return false;
+     if (a.rec[0] != b.rec[0] || a.rec[1] != b.rec[1] || a.rec[2] != b.rec[2]) return true;
+     return a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1;
+@@ -855,7 +985,7 @@ void plan_decodes(std::uint32_t prims) {
+     static const int kKey[] = {12, 13, 14, 15, 16, 17, 20, 22};
+     for (std::uint32_t i = 0; i < setups; ++i) {
+         std::uint32_t *w = b.setups.data() + i * kSetupWords;
+-        if (!(w[0] & 2u)) continue;
++        if (!(w[0] & 2u) || w[24] != 0xFFFFFFFFu) continue;  // (decoded already: rename_reads)
+         bool shared = false;
+         for (const Decode &d : g_decodes) {
+             const std::uint32_t *o = b.setups.data() + d.setup * kSetupWords;
+@@ -968,6 +1098,7 @@ void reset_batch() {
+     b.any_mip = false;
+     b.setup_serial = 0;
+     g_batch_reads.clear();
++    g_renamed = false;
+     b.key = ~0ull;
+     b.minx = b.miny = 1 << 30;
+     b.maxx = b.maxy = -1;
+@@ -1016,7 +1147,19 @@ void flush_batch() {
+     const std::uint32_t setup_offset = arena_append(b.setups.data(), b.setups.size() * 4);
+     // The mipmap table only when a setup of the batch has one (the draw program then reads it for every setup; prm 9 is ~0 otherwise)
+     const std::uint32_t mip_offset = b.any_mip && b.mips.size() / kMipWords == b.setups.size() / kSetupWords ? arena_append(b.mips.data(), b.mips.size() * 4) : 0xFFFFFFFFu;
+-    for (const Decode &d : g_decodes) dispatch_linear(kDecode, d.words, push_params({setup_offset + d.setup * kSetupWords, d.offset, d.words}));
++    // All of the batch's decodes in one dispatch (gs.wgsl decode; records: setup, destination, words, words before): one per texture
++    // cost a dispatch each, and a game that streams its textures (Midnight Club II from the air: 760 a frame) paid ~1.5 ms for that.
++    if (!g_decodes.empty()) {
++        std::uint32_t *records = g_arena.grow(static_cast<std::uint32_t>(g_decodes.size()) * 4u);
++        const std::uint32_t at = static_cast<std::uint32_t>(records - g_arena.data());
++        std::uint32_t before = 0;
++        for (const Decode &d : g_decodes) {
++            records[0] = setup_offset + d.setup * kSetupWords, records[1] = d.offset, records[2] = d.words, records[3] = before;
++            before += d.words;
++            records += 4;
++        }
++        dispatch_linear(kDecode, before, push_params({at, static_cast<std::uint32_t>(g_decodes.size()), before}));
++    }
+     std::uint32_t total = 0;
+     for (std::uint32_t n = 0; n < touched_n; ++n) total += count[touched[n]];
+     const std::uint32_t tiles = touched_n;
+@@ -1100,6 +1243,49 @@ bool batch_conflict(const Range &r, bool clut) {
+ }
+ 
+ void emit_pre() {
++    // PS2_PRE_LOG=<frame>: the pre ops of each run in that frame (U upload: pixels@dbp, C clut: cbp)
++    if (static const char *spec = std::getenv("PS2_PRE_LOG"); spec && frame_count() == std::strtoull(spec, nullptr, 10) && !g_pre.empty()) {
++        std::string line;
++        for (const PreOp &o : g_pre) {
++            char t[64];
++            if (o.clut) std::snprintf(t, sizeof t, " C%X/%u", o.rec[2], o.rec[6] ? 256u : 16u);
++            else std::snprintf(t, sizeof t, " U%u@%X/%X", o.rec[7], o.rec[0], o.rec[2]);
++            line += t;
++        }
++        std::fprintf(stderr, "[pre]%s\n", line.c_str());
++    }
++    // Uploads ahead of the CLUT loads of the run (PS2_PRE_REORDER=0 turns it off, an A/B aid). A game that streams its textures sends,
++    // texture after texture, palette upload, texture upload(s), CLUT load; each kind ran as its own dispatch, so every texture cost
++    // three or four dispatches that wait for each other (Midnight Club II from the air: some 2,400 a frame, ~10 ms). The uploads of a
++    // run mostly go to different places, so they can run as one dispatch and the CLUT loads after them as one more. An upload moves
++    // ahead of a CLUT load only when it writes nothing that load reads (else the run is cut there); uploads keep their order among
++    // themselves (the grouping below splits overlapping ones into dispatches in order), and so do the CLUT loads (each starts from
++    // the slot of the one before).
++    static const bool reorder = os::env("PS2_PRE_REORDER") != "0";
++    if (reorder && g_pre.size() > 2) {
++        std::vector<PreOp> out, uploads, cluts;
++        out.reserve(g_pre.size());
++        const auto cut = [&] {
++            out.insert(out.end(), uploads.begin(), uploads.end());
++            out.insert(out.end(), cluts.begin(), cluts.end());
++            uploads.clear();
++            cluts.clear();
++        };
++        for (const PreOp &op : g_pre) {
++            if (op.clut) {
++                cluts.push_back(op);
++                continue;
++            }
++            for (const PreOp &c : cluts)
++                if (!c.blocks.empty() && !op.blocks.empty() ? blocks_meet(c, op) : c.range.overlaps(op.range.lo, op.range.hi)) {
++                    cut();
++                    break;
++                }
++            uploads.push_back(op);
++        }
++        cut();
++        g_pre.swap(out);
++    }
+     std::size_t i = 0;
+     while (i < g_pre.size()) {
+         const bool clut = g_pre[i].clut;
+@@ -1123,7 +1309,7 @@ void emit_pre() {
+             }
+         }
+         if (clut) g_commands.push_back({kLoadClut, 1, 1, push_params({offset, count})});
+-        else dispatch_linear(kUpload, total, push_params({offset, count, total}));
++        else dispatch_linear(kUpload, total * g_scale * g_scale, push_params({offset, count, total}));  // a thread per sample (gs.wgsl upload)
+         i = j;
+     }
+     g_pre.clear();
+@@ -1134,9 +1320,83 @@ void emit_all() {
+     flush_batch();
+ }
+ 
++// Texture renaming (PS2_RENAME=0 turns it off, an A/B aid). A game that streams its textures through one place in memory (Midnight
++// Club in London: some 270 textures a frame) uploads the next texture over the one the pending run still reads, and every upload cut
++// the run: ~270 small drawing runs a frame, each waiting for the one before, and the chip mostly idle (10.5 ms of drawing at 4x on an
++// RTX 4090). Instead, when an upload only meets the run's texture reads (not its frame or depth), the run's textures are decoded now
++// (gs.wgsl decode: the texels with their palette applied, as plan_decodes does for big runs) into memory of their own, the run's
++// setups point at those copies (word 24), and the run goes on. Only textures that decode exactly are renamed: one sample per texel
++// (not a picture the game drew, whose finer samples count at SCALE > 1), inside their region, no mip levels, room left.
++
++bool rename_reads() {
++    Batch &b = g_batch;
++    if (!g_rename || !g_decode || b.prims.empty() || b.any_mip) return false;
++    batch_ranges();
++    static const int kKey[] = {12, 13, 14, 15, 16, 17, 20, 22};
++    const std::uint32_t setups = static_cast<std::uint32_t>(b.setups.size() / kSetupWords);
++    std::vector<Decode> &plan = g_decodes;
++    plan.clear();
++    std::uint32_t used = g_decoded_used;
++    for (std::uint32_t i = 0; i < setups; ++i) {
++        const std::uint32_t *w = b.setups.data() + i * kSetupWords;
++        if (!(w[0] & 2u) || w[24] != 0xFFFFFFFFu) continue;
++        bool shared = false;
++        for (const Decode &d : plan) {
++            const std::uint32_t *o = b.setups.data() + d.setup * kSetupWords;
++            bool same = (o[0] & 32768u) == (w[0] & 32768u);
++            for (int k : kKey) same = same && o[k] == w[k];
++            if (same) {
++                plan.push_back({i, d.offset, 0});
++                shared = true;
++                break;
++            }
++        }
++        if (shared) continue;
++        const std::uint32_t tw = w[15] & 0xFFu, th = w[15] >> 8;
++        const std::uint32_t mu = (w[7] >> 24) & 3u, mv = (w[7] >> 26) & 3u;
++        const auto inside = [](std::uint32_t mode, std::uint32_t region, std::uint32_t size) { return mode < 2 || ((region & 0x3FFu) < (1u << size) && (region >> 16) < (1u << size)); };
++        if (!inside(mu, w[18], tw) || !inside(mv, w[19], th)) return false;
++        const std::uint32_t words = 1u << (tw + th);
++        if (used + words > kDecodedWords) return false;
++        const Range whole = region(w[12], w[13], w[14], 0, 0, (1 << tw) - 1, (1 << th) - 1);
++        if (whole.overlaps(b.fb_range.lo, b.fb_range.hi) || (b.zwrite && whole.overlaps(b.z_range.lo, b.z_range.hi))) return false;
++        if (g_scale > 1 && rendered(pages(w[12], w[13], w[14], 0, 0, (1 << tw) - 1, (1 << th) - 1))) return false;
++        plan.push_back({i, used, words});
++        used += words;
++    }
++    // the uploads and palette loads queued so far come before the decodes, as they come before the run
++    emit_pre();
++    const std::uint32_t setup_offset = arena_append(b.setups.data(), b.setups.size() * 4);
++    std::uint32_t n = 0;
++    for (const Decode &d : plan) n += d.words ? 1u : 0u;
++    if (n) {
++        std::uint32_t *records = g_arena.grow(n * 4u);
++        const std::uint32_t at = static_cast<std::uint32_t>(records - g_arena.data());
++        std::uint32_t before = 0;
++        for (const Decode &d : plan) {
++            if (!d.words) continue;
++            records[0] = setup_offset + d.setup * kSetupWords, records[1] = d.offset, records[2] = d.words, records[3] = before;
++            before += d.words;
++            records += 4;
++        }
++        dispatch_linear(kDecode, before, push_params({at, n, before}));
++    }
++    for (const Decode &d : plan) b.setups[d.setup * kSetupWords + 24] = d.offset;
++    plan.clear();
++    g_decoded_used = used;
++    g_batch_reads.clear();
++    b.setup_serial = 0;  // a shape after the upload gets a setup of its own, which reads memory as the upload leaves it
++    g_renamed = true;
++    return true;
++}
++
+ void queue_pre(const PreOp &op) {
+     g_why = op.clut ? kWhyClut : kWhyUpload;
+-    if (batch_conflict(op.range, op.clut)) emit_all();
++    if (batch_conflict(op.range, op.clut)) {
++        const Batch &b = g_batch;
++        const bool frame = b.fb_range.overlaps(op.range.lo, op.range.hi) || (b.zte && b.z_range.overlaps(op.range.lo, op.range.hi));
++        if (op.clut || frame || !rename_reads()) emit_all();
++    }
+     g_why = kWhyFlush;
+     g_pre.push_back(op);
+ }
+@@ -1181,6 +1441,7 @@ std::uint64_t queue_upload(const std::uint8_t *bytes, std::size_t size, std::uin
+     op.y0 = im.dsay + first;
+     op.y1 = im.dsay + last;
+     op.image = im.id;
++    op_blocks(op, im.dpsm, im.dbp, im.dbw, op.x0, op.y0, op.x1, op.y1);
+     queue_pre(op);
+     im.done += pixels;
+     return used;
+@@ -1361,6 +1622,7 @@ void bench_capture() {
+ 
+ // Browsers copy writes above about 1 MiB through a slower path, so large uploads go in pieces.
+ void submit(WGPUTextureView present_view = nullptr) {
++    if (g_renamed && !g_batch.prims.empty()) emit_all();  // its decodes are in this submit; the decoded memory is used afresh by the next
+     if (g_commands.empty() && !present_view
+         ) return;
+     if (g_bench.capturing) bench_capture();
+@@ -1440,13 +1702,31 @@ void submit(WGPUTextureView present_view = nullptr) {
+         WGPURenderPassDescriptor rd = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+         rd.colorAttachmentCount = 1;
+         rd.colorAttachments = &color;
+-        WGPURenderPassEncoder rp = wgpuCommandEncoderBeginRenderPass(enc, &rd);
+         const float w = static_cast<float>(g_surface_width), h = static_cast<float>(g_surface_height);
+-        const float aspect = g_options.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
++        const float aspect = widescreen_now() ? 16.0f / 9.0f : 4.0f / 3.0f;
+         const float vw = std::min(w, h * aspect), vh = vw / aspect;
++        const bool fsr = g_fsr && g_fsr_easu && g_fsr_rcas;
++        if (fsr) {  // FSR pass one: the picture at the window's size into the FSR texture (blit params out_width/out_height are vw, vh)
++            fsr_size(static_cast<std::uint32_t>(vw), static_cast<std::uint32_t>(vh));
++            WGPURenderPassColorAttachment easu = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
++            easu.view = g_fsr_view;
++            easu.loadOp = WGPULoadOp_Clear;
++            easu.storeOp = WGPUStoreOp_Store;
++            easu.clearValue = WGPUColor{0.0, 0.0, 0.0, 1.0};
++            WGPURenderPassDescriptor ed = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
++            ed.colorAttachmentCount = 1;
++            ed.colorAttachments = &easu;
++            WGPURenderPassEncoder ep = wgpuCommandEncoderBeginRenderPass(enc, &ed);
++            wgpuRenderPassEncoderSetPipeline(ep, g_fsr_easu);
++            wgpuRenderPassEncoderSetBindGroup(ep, 0, g_blit_group, 0, nullptr);
++            wgpuRenderPassEncoderDraw(ep, 3, 1, 0, 0);
++            wgpuRenderPassEncoderEnd(ep);
++            wgpuRenderPassEncoderRelease(ep);
++        }
++        WGPURenderPassEncoder rp = wgpuCommandEncoderBeginRenderPass(enc, &rd);
+         wgpuRenderPassEncoderSetViewport(rp, (w - vw) * 0.5f, (h - vh) * 0.5f, vw, vh, 0.0f, 1.0f);
+-        wgpuRenderPassEncoderSetPipeline(rp, g_blit);
+-        wgpuRenderPassEncoderSetBindGroup(rp, 0, g_blit_group, 0, nullptr);
++        wgpuRenderPassEncoderSetPipeline(rp, fsr ? g_fsr_rcas : g_blit);
++        wgpuRenderPassEncoderSetBindGroup(rp, 0, fsr ? g_fsr_group : g_blit_group, 0, nullptr);
+         wgpuRenderPassEncoderDraw(rp, 3, 1, 0, 0);
+         if (g_overlay.on && g_overlay.group && g_surface_width && g_surface_height) {
+             // the panel's own rectangle, cut to the window (a window made smaller than the panel shows its top left part)
+@@ -1806,6 +2086,26 @@ void fmt_words(std::uint32_t psm, std::uint32_t bp, std::uint32_t bw, std::uint3
+     out[4] = mask;
+ }
+ 
++// PS2_TEX_FILTER for a primitive: -1 the game's own filter, 0 nearest, 1 bilinear (make_setup, make_mip). A texture in GS memory that
++// was drawn into (a picture the game rendered and reads back: Midnight Club II's headlight glow is blurred by stamping such a copy at
++// small offsets, and copies, blurs and screen effects expect every texel exactly) keeps the game's filter: forced bilinear there
++// striped the glow.
++int forced_filter(const State &st, std::uint64_t attr) {
++    static const int tex_filter = [] {
++        const std::string v = os::env("PS2_TEX_FILTER");
++        return v == "nearest" ? 0 : v == "bilinear" ? 1 : v == "bilinear_sprites" ? 2 : -1;
++    }();
++    if (tex_filter < 0) return -1;
++    const int forced = tex_filter == 2 ? ((attr & 7u) == 6u ? -1 : 1) : tex_filter;
++    if (forced < 0) return -1;
++    const Context &c = st.ctx[(attr >> 9) & 1u];
++    const std::uint32_t tbp = static_cast<std::uint32_t>(c.tex0 & 0x3FFFu), tbw = static_cast<std::uint32_t>(c.tex0 >> 14) & 0x3Fu,
++                        psm = static_cast<std::uint32_t>(c.tex0 >> 20) & 0x3Fu;
++    const int tw = 1 << ((c.tex0 >> 26) & 0xFu), th = 1 << ((c.tex0 >> 30) & 0xFu);
++    if (rendered(region(tbp, tbw, psm, 0, 0, tw - 1, th - 1))) return -1;
++    return forced;
++}
++
+ std::uint32_t make_setup(const State &st, std::uint64_t attr, std::uint32_t *w) {
+     const Context &c = st.ctx[(attr >> 9) & 1u];
+     std::uint32_t flags = 0;
+@@ -1824,7 +2124,19 @@ std::uint32_t make_setup(const State &st, std::uint64_t attr, std::uint32_t *w)
+     if (c.fba & 1u) flags |= 4096u;
+     if ((c.tex0 >> 34) & 1u) flags |= 8192u;
+     if ((c.tex1 >> 5) & 1u) flags |= 16384u;
++    // PS2_TEX_FILTER (as PCSX2's Texture Filtering): ps2 (default) the filter the game sets in TEX1 for each texture;
++    // nearest: every texture read nearest; bilinear: every one bilinear; bilinear_sprites: bilinear except sprites (the
++    // HUD, text and full-screen passes stay as the game draws them). Mipmapped textures keep their level choice; only the
++    // filter inside a level changes.
++    const int forced = forced_filter(st, attr);
++    if (forced == 0) flags &= ~16384u;
++    else if (forced == 1) flags |= 16384u;
+     if ((st.texa >> 15) & 1u) flags |= 32768u;
++    // PS2_DITHER=1: the GS's dither (DTHE, DIMX) on drawing into a 16-bit frame, as the console does it; off by default, as before.
++    static const bool dither = std::getenv("PS2_DITHER") && std::string(std::getenv("PS2_DITHER")) == "1";
++    const std::uint32_t fpsm_now = static_cast<std::uint32_t>(c.frame >> 24) & 0x3Fu;
++    if (dither && (st.dthe & 1u) && (fpsm_now == 0x02u || fpsm_now == 0x0Au)) flags |= 65536u;
++    if (g_alpha_from_green) flags |= 131072u;
+     const std::uint32_t zpsm = 0x30u | (static_cast<std::uint32_t>(c.zbuf >> 24) & 0xFu);
+     w[0] = flags;
+     w[1] = (static_cast<std::uint32_t>(c.frame) & 0x1FFu) * 32u;
+@@ -1857,6 +2169,8 @@ std::uint32_t make_setup(const State &st, std::uint64_t attr, std::uint32_t *w)
+     fmt_words(w[14], w[12], w[13], w + 25);
+     fmt_words(w[3], w[1], w[2], w + 30);
+     fmt_words(w[6], w[5], w[2], w + 35);
++    w[40] = static_cast<std::uint32_t>(st.dimx);
++    w[41] = static_cast<std::uint32_t>(st.dimx >> 32);
+     return flags;
+ }
+ 
+@@ -1869,8 +2183,14 @@ std::uint32_t make_mip(const State &st, std::uint64_t attr, std::uint32_t *m) {
+     static const bool off = std::getenv("PS2_MIPMAP") && std::getenv("PS2_MIPMAP")[0] == '0';  // PS2_MIPMAP=0: level 0 and MMAG's filter, as before (an A/B aid)
+     if (!(attr & 0x10u) || off) return 0;
+     const Context &c = st.ctx[(attr >> 9) & 1u];
+-    const std::uint32_t lcm = c.tex1 & 1u, mxl = std::min<std::uint32_t>(static_cast<std::uint32_t>(c.tex1 >> 2) & 7u, 6u), mmag = static_cast<std::uint32_t>(c.tex1 >> 5) & 1u;
+-    const std::uint32_t mmin = static_cast<std::uint32_t>(c.tex1 >> 6) & 7u, l = static_cast<std::uint32_t>(c.tex1 >> 19) & 3u, kraw = static_cast<std::uint32_t>(c.tex1 >> 32) & 0xFFFu;
++    const std::uint32_t lcm = c.tex1 & 1u, mxl = std::min<std::uint32_t>(static_cast<std::uint32_t>(c.tex1 >> 2) & 7u, 6u);
++    std::uint32_t mmag = static_cast<std::uint32_t>(c.tex1 >> 5) & 1u;
++    std::uint32_t mmin = static_cast<std::uint32_t>(c.tex1 >> 6) & 7u;
++    const std::uint32_t l = static_cast<std::uint32_t>(c.tex1 >> 19) & 3u, kraw = static_cast<std::uint32_t>(c.tex1 >> 32) & 0xFFFu;
++    // PS2_TEX_FILTER: the filter inside a level forced to nearest or bilinear, for magnification and reduction alike; the level choice stays
++    const int forced = forced_filter(st, attr);
++    if (forced == 0) mmag = 0, mmin = mmin == 1u ? 0u : mmin >= 4u ? mmin - 2u : mmin;
++    else if (forced == 1) mmag = 1, mmin = mmin == 0u ? 1u : (mmin == 2u || mmin == 3u) ? mmin + 2u : mmin;
+     const bool min_linear = mmin == 1 || mmin >= 4, levels = mxl > 0 && mmin >= 2;
+     if (mmag == (min_linear ? 1u : 0u) && !levels) return 0;
+     m[0] = 0x80000000u | lcm | (mxl << 1) | (mmag << 4) | (mmin << 5) | (l << 8) | (kraw << 16);
+@@ -1970,6 +2290,36 @@ bool drawn_under(const Batch &b, const int rect[4]) {
+     return false;
+ }
+ 
++// A texture read from memory that the batch's frame also takes up, in another width or layout: does any 8 KB page the read
++// touches hold a pixel the batch has drawn? Each such page is turned into the box it is in the frame and tested like a read of
++// the frame itself (drawn_under). The memory test before it (region) runs both ranges from their buffers' start, so any read
++// inside the frame's memory met any drawing (SR1Recomp: Smuggler's Run reads a 512-wide texture at block 128 of its 640-wide
++// frame at block 0 some 550 times a frame while driving, which ended ~2700 batches a frame for 10 to 30 ms of GPU time).
++// Returns -1 when it cannot tell (more than 512 pages, a frame not on a page boundary): the memory test decides then.
++int pages_drawn_under(const std::uint32_t *setup, const Batch &b, const int rect[4]) {
++    if (b.fbp % 32u || b.fbw == 0 || setup[13] == 0) return -1;
++    std::uint32_t tpw, tph, fpw, fph;
++    page_size(setup[14], tpw, tph);
++    page_size(b.fpsm, fpw, fph);
++    const std::uint32_t tper_row = std::max<std::uint32_t>(1, setup[13] * 64 / tpw), fper_row = std::max<std::uint32_t>(1, b.fbw * 64 / fpw);
++    const std::uint32_t c0 = static_cast<std::uint32_t>(rect[0]) / tpw, c1 = static_cast<std::uint32_t>(rect[2]) / tpw;
++    const std::uint32_t r0 = static_cast<std::uint32_t>(rect[1]) / tph, r1 = static_cast<std::uint32_t>(rect[3]) / tph;
++    if (static_cast<std::uint64_t>(c1 - c0 + 1) * (r1 - r0 + 1) > 512) return -1;
++    const std::uint32_t tbase = setup[12] / 32u, fbase = b.fbp / 32u;
++    const std::uint32_t spill = setup[12] % 32u ? 1u : 0u;  // a texture that starts inside a page also takes up part of the next one
++    for (std::uint32_t r = r0; r <= r1; ++r)
++        for (std::uint32_t c = c0; c <= c1; ++c)
++            for (std::uint32_t k = 0; k <= spill; ++k) {
++                const std::uint32_t page = tbase + r * tper_row + c + k;
++                if (page < fbase) continue;
++                const std::uint32_t q = page - fbase;
++                const int box[4] = {static_cast<int>(q % fper_row * fpw), static_cast<int>(q / fper_row * fph), static_cast<int>(q % fper_row * fpw + fpw - 1),
++                                    static_cast<int>(q / fper_row * fph + fph - 1)};
++                if (drawn_under(b, box)) return 1;
++            }
++    return 0;
++}
++
+ // PS2_EXACT_SELFTEST=1 (any program will do, no disc: docs/mgs3.md, "Checking the word sets"): runs sprite_taps and exact_clear on random sprites in 32-bit colour against a
+ // look at every pixel, the way the draw program samples (the float arithmetic of shade_at with and without a fused multiply-add, every sub-sample of the pixel, every tap of
+ // the bilinear filter, the wrap modes) and the addresses of ps2::gs::address32, which this code does not share. A sprite that the word sets let join although a pixel reads a word
+@@ -2330,7 +2680,7 @@ bool init(Mode m) {
+             g_bench.reps = std::clamp<unsigned long long>(reps, 1, 500);
+         }
+     }
+-    if (const char *scale = std::getenv("PS2_SCALE")) g_scale = std::clamp<std::uint32_t>(static_cast<std::uint32_t>(std::atoi(scale)), 1u, 3u);
++    if (const char *scale = std::getenv("PS2_SCALE")) g_scale = std::clamp<std::uint32_t>(static_cast<std::uint32_t>(std::atoi(scale)), 1u, 4u);
+     g_copy_words = (1u << 20) * g_scale * g_scale;
+     if (const int tile = std::atoi(os::env("PS2_TILE").c_str()); tile == 4 || tile == 8 || tile == 16) g_tile = tile;
+     g_tiles_per_row = (2048 * static_cast<int>(g_scale) + g_tile - 1) / g_tile;
+@@ -2338,7 +2688,10 @@ bool init(Mode m) {
+     g_tile_fill.assign(static_cast<std::size_t>(g_tiles_per_row) * g_tiles_per_row + 8, 0);
+     g_touched.assign(g_tile_count.size() + 8, 0);
+     g_field_words = (1u << 19) * g_scale * g_scale;
+-    g_vram = make_buffer(static_cast<std::uint64_t>(kMemorySize) * g_scale * g_scale, WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc | WGPUBufferUsage_CopyDst);
++    // PS2_DEPTH_FRAC=1 (DEPTH_FRAC in gs.wgsl): the fractions of 16-bit depths are kept after the emulated memory, so the buffer is twice as large
++    const bool depth_frac = os::env("PS2_DEPTH_FRAC") == "1";
++    if (depth_frac) std::fprintf(stderr, "[gpu] 16-bit depth keeps its fractions (PS2_DEPTH_FRAC=1)\n");
++    g_vram = make_buffer(static_cast<std::uint64_t>(kMemorySize) * g_scale * g_scale * (depth_frac ? 2u : 1u), WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc | WGPUBufferUsage_CopyDst);
+     std::vector<std::uint32_t> tables;
+     swizzle_tables(tables);
+     g_swizzle = tables;
+@@ -2346,10 +2699,12 @@ bool init(Mode m) {
+     g_tables = make_buffer(tables.size() * 4, WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+     wgpuQueueWriteBuffer(g_queue, g_tables, 0, tables.data(), tables.size() * 4);
+     g_clut = make_buffer(static_cast<std::uint64_t>(kClutSlots) * kClutEntries * 4, WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc | WGPUBufferUsage_CopyDst);
+-    g_scratch = make_buffer((static_cast<std::uint64_t>(g_copy_words) + 2ull * g_field_words) * 4, WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
++    // the copy area, the two fields of the picture and the true-colour picture (true_color_copy)
++    g_scratch = make_buffer((static_cast<std::uint64_t>(g_copy_words) + 3ull * g_field_words) * 4, WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+     g_cache = make_buffer(static_cast<std::uint64_t>(kCacheWords) * 4, WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+     g_decoded = make_buffer(static_cast<std::uint64_t>(kDecodedWords) * 4, WGPUBufferUsage_Storage);
+     if (const char *decode = std::getenv("PS2_DECODE")) g_decode = std::atoi(decode) != 0;
++    if (const char *rename = std::getenv("PS2_RENAME")) g_rename = std::atoi(rename) != 0;
+     g_cache_copy.assign(kCacheWords, 0);
+     g_readback = make_buffer(static_cast<std::uint64_t>(g_copy_words) * 4, WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst);
+     if (g_timestamps) {
+@@ -2413,6 +2768,8 @@ bool init(Mode m) {
+     const bool has_tile = shader_text.empty() || shader_text.find("override TILE") != std::string::npos;
+     const bool has_fma = shader_text.empty() || shader_text.find("override EXPLICIT_FMA") != std::string::npos;
+     const bool has_mip = shader_text.empty() || shader_text.find("override HAS_MIP") != std::string::npos;
++    const bool has_ss = shader_text.empty() || shader_text.find("override TEX_SS") != std::string::npos;  // smooth distant textures (PS2_TEX_SS)
++    const bool has_df = shader_text.empty() || shader_text.find("override DEPTH_FRAC") != std::string::npos;  // depth fractions (PS2_DEPTH_FRAC)
+     const int scale = static_cast<int>(g_scale), tile = g_tile;
+     // `mip`: the draw program that reads mipmap levels (HAS_MIP in gs.wgsl); without it the program is the plain one
+     auto make_pipeline = [=](int entry, bool mip) {
+@@ -2420,7 +2777,7 @@ bool init(Mode m) {
+         cd.layout = g_pipeline_layout;
+         cd.compute.module = module;
+         cd.compute.entryPoint = view(kEntryPoints[entry]);
+-        WGPUConstantEntry constants[4] = {WGPU_CONSTANT_ENTRY_INIT, WGPU_CONSTANT_ENTRY_INIT, WGPU_CONSTANT_ENTRY_INIT, WGPU_CONSTANT_ENTRY_INIT};
++        WGPUConstantEntry constants[6] = {WGPU_CONSTANT_ENTRY_INIT, WGPU_CONSTANT_ENTRY_INIT, WGPU_CONSTANT_ENTRY_INIT, WGPU_CONSTANT_ENTRY_INIT, WGPU_CONSTANT_ENTRY_INIT, WGPU_CONSTANT_ENTRY_INIT};
+         constants[0].key = view("SCALE");
+         constants[0].value = static_cast<double>(scale);
+         constants[1].key = view("TILE");
+@@ -2429,7 +2786,11 @@ bool init(Mode m) {
+         constants[2].value = explicit_fma ? 1.0 : 0.0;
+         constants[3].key = view("HAS_MIP");
+         constants[3].value = mip ? 1.0 : 0.0;
+-        cd.compute.constantCount = has_tile ? (has_fma ? (has_mip ? 4 : 3) : 2) : 1;
++        constants[4].key = view("TEX_SS");
++        constants[4].value = os::env("PS2_TEX_SS") == "1" ? 1.0 : 0.0;
++        constants[5].key = view("DEPTH_FRAC");
++        constants[5].value = depth_frac ? 1.0 : 0.0;
++        cd.compute.constantCount = has_tile ? (has_fma ? (has_mip ? (has_ss ? (has_df ? 6 : 5) : 4) : 3) : 2) : 1;
+         cd.compute.constants = constants;
+         return wgpuDeviceCreateComputePipeline(g_device, &cd);
+     };
+@@ -2648,7 +3009,15 @@ void draw(const State &st, const Vertex *v, int count) {
+                     const bool small = rect[2] - rect[0] < 64 && rect[3] - rect[1] < 64;
+                     const bool cached = b.texflushes == g_texflushes && small && shares_frame(setup, b);
+                     const bool same = shares_frame(setup, b);
+-                    const bool frame = !cached && (same ? drawn_under(b, rect) : used.overlaps(b.fb_range.lo, b.fb_range.hi));
++                    // a read of other memory than the frame's own layout: page by page against what the batch drew (pages_drawn_under;
++                    // PS2_PAGE_TEST=0 leaves it to the memory test, for comparison)
++                    static const bool page_test = [] { const char *e = std::getenv("PS2_PAGE_TEST"); return !e || std::strcmp(e, "0") != 0; }();
++                    const auto other = [&] {
++                        if (!used.overlaps(b.fb_range.lo, b.fb_range.hi)) return false;
++                        const int pages = page_test ? pages_drawn_under(setup, b, rect) : -1;
++                        return pages != 0;
++                    };
++                    const bool frame = !cached && (same ? drawn_under(b, rect) : other());
+                     const bool zhit = b.zwrite && !z_untouched && used.overlaps(b.z_range.lo, b.z_range.hi);
+                     if ((frame || zhit) && !(frame && !zhit && exact_ok && exact_join())) {
+                         if (g_batch_log_frame > 1 && frame_count() == g_batch_log_frame) {
+@@ -2794,6 +3163,8 @@ void load_clut(std::uint64_t tex0, std::uint64_t texclut) {
+     std::memcpy(op.rec, rec, sizeof rec);
+     op.range = csm ? region(cbp, cbw, cpsm, static_cast<int>(cou * 16), static_cast<int>(cov), static_cast<int>(cou * 16 + 255), static_cast<int>(cov))
+                    : region(cbp, 1, cpsm, 0, 0, 15, 15);
++    if (csm) op_blocks(op, cpsm, cbp, cbw, cou * 16, cov, cou * 16 + 255, cov);
++    else op_blocks(op, cpsm, cbp, 1, 0, 0, 15, 15);
+     queue_pre(op);
+     g_clut_slot = next;
+     ++g_clut_loads;
+@@ -3083,6 +3454,56 @@ bool attach_surface(const SurfaceTarget &target) {
+     rd.vertex.entryPoint = view("vs");
+     rd.fragment = &fragment;
+     g_blit = wgpuDeviceCreateRenderPipeline(g_device, &rd);
++    if (g_fsr) {
++        // pass one: the same shader and bindings, entry fs_easu, into the RGBA8 FSR texture
++        WGPUColorTargetState easu_color = WGPU_COLOR_TARGET_STATE_INIT;
++        easu_color.format = WGPUTextureFormat_RGBA8Unorm;
++        WGPUFragmentState easu_fragment = fragment;
++        easu_fragment.entryPoint = view("fs_easu");
++        easu_fragment.targets = &easu_color;
++        WGPURenderPipelineDescriptor ed = rd;
++        ed.fragment = &easu_fragment;
++        g_fsr_easu = wgpuDeviceCreateRenderPipeline(g_device, &ed);
++        // pass two: RCAS, reading the FSR texture, onto the screen
++        WGPUShaderSourceWGSL rsource = WGPU_SHADER_SOURCE_WGSL_INIT;
++        rsource.code = view(kRcasShader);
++        WGPUShaderModuleDescriptor rmd = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
++        rmd.nextInChain = &rsource.chain;
++        WGPUShaderModule rmodule = wgpuDeviceCreateShaderModule(g_device, &rmd);
++        WGPUBindGroupLayoutEntry rle[2] = {WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT, WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT};
++        rle[0].binding = 0;
++        rle[0].visibility = WGPUShaderStage_Fragment;
++        rle[0].texture.sampleType = WGPUTextureSampleType_Float;
++        rle[0].texture.viewDimension = WGPUTextureViewDimension_2D;
++        rle[1].binding = 1;
++        rle[1].visibility = WGPUShaderStage_Fragment;
++        rle[1].buffer.type = WGPUBufferBindingType_Uniform;
++        WGPUBindGroupLayoutDescriptor rld = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
++        rld.entryCount = 2;
++        rld.entries = rle;
++        g_fsr_layout = wgpuDeviceCreateBindGroupLayout(g_device, &rld);
++        WGPUPipelineLayoutDescriptor rpld = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
++        rpld.bindGroupLayoutCount = 1;
++        rpld.bindGroupLayouts = &g_fsr_layout;
++        WGPUPipelineLayout rpl = wgpuDeviceCreatePipelineLayout(g_device, &rpld);
++        WGPUFragmentState rfragment = fragment;
++        rfragment.module = rmodule;
++        rfragment.entryPoint = view("fs");
++        WGPURenderPipelineDescriptor rrd = rd;
++        rrd.layout = rpl;
++        rrd.vertex.module = rmodule;
++        rrd.fragment = &rfragment;
++        g_fsr_rcas = wgpuDeviceCreateRenderPipeline(g_device, &rrd);
++        if (std::getenv("PS2_FSR_DUMP")) {  // the same pass into an RGBA8 texture, for the dump below
++            WGPUColorTargetState dump_color = WGPU_COLOR_TARGET_STATE_INIT;
++            dump_color.format = WGPUTextureFormat_RGBA8Unorm;
++            rfragment.targets = &dump_color;
++            g_fsr_rcas_dump = wgpuDeviceCreateRenderPipeline(g_device, &rrd);
++        }
++        wgpuShaderModuleRelease(rmodule);
++        wgpuPipelineLayoutRelease(rpl);
++        std::fprintf(stderr, "[gpu] FSR 1 (EASU + RCAS) %s\n", g_fsr_easu && g_fsr_rcas ? "on" : "could not be set up: the picture look is used");
++    }
+     wgpuShaderModuleRelease(module);
+     wgpuPipelineLayoutRelease(pipeline_layout);
+     g_blit_params = make_buffer(32, WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst);
+@@ -3212,6 +3633,76 @@ std::uint32_t display_params(const DisplaySource &src, std::uint32_t scratch_at)
+                         o.active ? 1u : 0u, o.fbp, o.fbw, o.psm, o.dbx, o.dby, static_cast<std::uint32_t>(o.x), static_cast<std::uint32_t>(o.y), o.width, o.height});
+ }
+ 
++// PS2_FSR_DUMP=<picture number>,<path prefix> (with PS2_FSR=1): at that shown picture, writes FSR's two passes as they reach the
++// screen, <prefix>_easu.ppm and <prefix>_rcas.ppm, at the size the picture takes in the window. For checking FSR without a
++// screen capture.
++void fsr_dump() {
++    static const char *spec = std::getenv("PS2_FSR_DUMP");
++    static std::uint64_t shown = 0;
++    if (!spec || !g_fsr_rcas_dump || !g_fsr_texture || !std::strchr(spec, ',')) return;
++    if (++shown != std::strtoull(spec, nullptr, 10)) return;
++    const std::string prefix = std::strchr(spec, ',') + 1;
++    const std::uint32_t w = g_fsr_width, h = g_fsr_height, row = (w * 4 + 255) & ~255u;
++    WGPUTextureDescriptor td = WGPU_TEXTURE_DESCRIPTOR_INIT;
++    td.size = {w, h, 1};
++    td.format = WGPUTextureFormat_RGBA8Unorm;
++    td.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
++    WGPUTexture rcas = wgpuDeviceCreateTexture(g_device, &td);
++    WGPUTextureView rcas_view = wgpuTextureCreateView(rcas, nullptr);
++    WGPUBuffer out = make_buffer(static_cast<std::uint64_t>(row) * h * 2, WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead);
++    WGPUCommandEncoder enc = wgpuDeviceCreateCommandEncoder(g_device, nullptr);
++    WGPURenderPassColorAttachment color = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
++    color.view = rcas_view;
++    color.loadOp = WGPULoadOp_Clear;
++    color.storeOp = WGPUStoreOp_Store;
++    WGPURenderPassDescriptor rd = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
++    rd.colorAttachmentCount = 1;
++    rd.colorAttachments = &color;
++    WGPURenderPassEncoder rp = wgpuCommandEncoderBeginRenderPass(enc, &rd);
++    wgpuRenderPassEncoderSetPipeline(rp, g_fsr_rcas_dump);
++    wgpuRenderPassEncoderSetBindGroup(rp, 0, g_fsr_group, 0, nullptr);
++    wgpuRenderPassEncoderDraw(rp, 3, 1, 0, 0);
++    wgpuRenderPassEncoderEnd(rp);
++    wgpuRenderPassEncoderRelease(rp);
++    for (int k = 0; k < 2; ++k) {
++        WGPUTexelCopyTextureInfo src = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
++        src.texture = k ? rcas : g_fsr_texture;
++        WGPUTexelCopyBufferInfo dst = WGPU_TEXEL_COPY_BUFFER_INFO_INIT;
++        dst.buffer = out;
++        dst.layout.offset = static_cast<std::uint64_t>(row) * h * k;
++        dst.layout.bytesPerRow = row;
++        dst.layout.rowsPerImage = h;
++        const WGPUExtent3D size = {w, h, 1};
++        wgpuCommandEncoderCopyTextureToBuffer(enc, &src, &dst, &size);
++    }
++    WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(enc, nullptr);
++    wgpuQueueSubmit(g_queue, 1, &cmd);
++    wgpuCommandBufferRelease(cmd);
++    wgpuCommandEncoderRelease(enc);
++    bool done = false;
++    WGPUBufferMapCallbackInfo cb = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
++    cb.mode = WGPUCallbackMode_AllowProcessEvents;
++    cb.callback = [](WGPUMapAsyncStatus, WGPUStringView, void *flag, void *) { *static_cast<bool *>(flag) = true; };
++    cb.userdata1 = &done;
++    wgpuBufferMapAsync(out, WGPUMapMode_Read, 0, static_cast<std::uint64_t>(row) * h * 2, cb);
++    wait_until(done);
++    const auto *bytes = static_cast<const std::uint8_t *>(wgpuBufferGetConstMappedRange(out, 0, static_cast<std::uint64_t>(row) * h * 2));
++    for (int k = 0; k < 2 && bytes; ++k) {
++        const std::string path = prefix + (k ? "_rcas.ppm" : "_easu.ppm");
++        if (std::FILE *f = os::open(path.c_str(), "wb")) {
++            std::fprintf(f, "P6\n%u %u\n255\n", w, h);
++            for (std::uint32_t y = 0; y < h; ++y)
++                for (std::uint32_t x = 0; x < w; ++x) std::fwrite(bytes + static_cast<std::size_t>(row) * (h * k + y) + x * 4, 1, 3, f);
++            std::fclose(f);
++            std::fprintf(stderr, "[gpu] FSR dump: %s (%ux%u)\n", path.c_str(), w, h);
++        }
++    }
++    wgpuBufferUnmap(out);
++    wgpuBufferRelease(out);
++    wgpuTextureViewRelease(rcas_view);
++    wgpuTextureRelease(rcas);
++}
++
+ bool present(const DisplaySource &src) {
+     if (!g_surface) return false;
+     static PresentLog log;
+@@ -3219,13 +3710,18 @@ bool present(const DisplaySource &src) {
+     if (log.on) log.mark = PresentLog::Clock::now();
+     flush_all();
+     if (log.on) log.lap(log.flush);
+-    const std::uint32_t current = field_base(g_field), previous = field_base(g_field + 1);
++    g_last_shown = src;
++    g_last_shown_valid = true;
++    const bool true_color = true_color_for(src);
++    const std::uint32_t current = true_color ? true_color_base() : field_base(g_field), previous = field_base(g_field + 1);
+     static const bool weave_off = std::getenv("PS2_NO_DEINTERLACE") != nullptr;
+-    const bool blend = src.halved && g_have_previous && g_last_width == src.width && g_last_height == src.height && !weave_off;
+-    const std::uint32_t param = display_params(src, current);
+-    push_display(src, current, param);
++    const bool blend = !true_color && src.halved && g_have_previous && g_last_width == src.width && g_last_height == src.height && !weave_off;
++    if (!true_color) {
++        const std::uint32_t param = display_params(src, current);
++        push_display(src, current, param);
++    }
+     const float sw = static_cast<float>(g_surface_width), sh = static_cast<float>(g_surface_height);
+-    const float aspect = g_options.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
++    const float aspect = widescreen_now() ? 16.0f / 9.0f : 4.0f / 3.0f;
+     const float vw = std::min(sw, sh * aspect), vh = vw / aspect;
+     const std::uint32_t blit[8] = {src.width * g_scale, src.height * g_scale, current, previous, blend ? 1u : 0u, static_cast<std::uint32_t>(vw), static_cast<std::uint32_t>(vh), ps2::video_options()};
+     wgpuQueueWriteBuffer(g_queue, g_blit_params, 0, blit, sizeof blit);
+@@ -3256,6 +3752,7 @@ bool present(const DisplaySource &src) {
+     const auto submit_from = PresentLog::Clock::now();
+     ps2::hitch::enter_present_stage("submitting the picture (submit)");
+     submit(target);
++    if (g_fsr) fsr_dump();
+     if (log.on) log.lap(log.submit);
+ #ifndef __EMSCRIPTEN__
+     ps2::hitch::enter_present_stage("presenting the picture (wgpuSurfacePresent)");
+@@ -3405,7 +3902,7 @@ bool present_again() {
+     // the same picture as the last present (its fields are still in the scratch buffer: the game draws nothing while it waits), with the
+     // window's size and the picture look of now
+     const float sw = static_cast<float>(g_surface_width), sh = static_cast<float>(g_surface_height);
+-    const float aspect = g_options.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
++    const float aspect = widescreen_now() ? 16.0f / 9.0f : 4.0f / 3.0f;
+     const float vw = std::min(sw, sh * aspect), vh = vw / aspect;
+     const std::uint32_t tail[3] = {static_cast<std::uint32_t>(vw), static_cast<std::uint32_t>(vh), ps2::video_options()};
+     wgpuQueueWriteBuffer(g_queue, g_blit_params, 20, tail, sizeof tail);
+@@ -3504,14 +4001,59 @@ bool display_async(const DisplaySource &src, std::vector<std::uint32_t> &rgba, s
+ 
+ bool display(const DisplaySource &src, std::vector<std::uint32_t> &rgba, std::uint32_t &width, std::uint32_t &height) {
+     flush_all();
+-    const std::uint32_t param = display_params(src, 0);
+-    push_display(src, 0, param);
++    g_last_shown = src;
++    g_last_shown_valid = true;
++    const bool true_color = true_color_for(src);
++    if (!true_color) {
++        const std::uint32_t param = display_params(src, 0);
++        push_display(src, 0, param);
++    }
+     submit();
+     width = src.width * g_scale;
+     height = src.height * g_scale;
+     rgba.resize(static_cast<std::size_t>(width) * height);
+-    read_back(g_scratch, rgba.size() * 4, rgba.data());
++    read_back(g_scratch, rgba.size() * 4, rgba.data(), true_color ? static_cast<std::uint64_t>(true_color_base()) * 4 : 0);
+     return true;
+ }
+ 
++bool true_color_on() {
++    static const bool on = ps2::os::env("PS2_TRUE_COLOR") == "1";
++    return on;
++}
++
++void true_color_copy(std::uint32_t dst_fbp, std::uint32_t src_tbp, std::uint32_t src_tbw, std::uint32_t src_psm) {
++    if (!true_color_on() || !g_last_shown_valid) return;
++    const DisplaySource &shown = g_last_shown;
++    if (shown.fbp != dst_fbp || shown.overlay.active) return;  // only a copy into the buffer the screen shows
++    const std::uint64_t frame = ps2::frame_count();
++    if (g_true.ready && g_true.dst == dst_fbp && g_true.frame == frame) return;  // the copy's other strips: already kept
++    // Everything drawn before this copy has to be in the source first, then the display kernel writes it out as the screen would.
++    flush_all();
++    DisplaySource from = shown;
++    from.fbp = src_tbp;
++    from.fbw = src_tbw;
++    from.psm = src_psm;
++    from.overlay = DisplayOverlay{};
++    const std::uint32_t param = display_params(from, true_color_base());
++    push_display(from, true_color_base(), param);
++    g_true.ready = true;
++    g_true.dst = dst_fbp;
++    g_true.fbw = shown.fbw, g_true.dbx = shown.dbx, g_true.dby = shown.dby, g_true.width = shown.width, g_true.height = shown.height;
++    g_true.halved = shown.halved;
++    g_true.frame = frame;
++    static bool said = false;
++    if (!said) {
++        said = true;
++        std::fprintf(stderr, "[gpu] true colour: the 32-bit picture at block 0x%X is shown instead of the 16-bit buffer it is copied to (0x%X)\n", src_tbp, dst_fbp);
++    }
++}
++
++void true_color_forget(std::uint32_t block) {
++    if (g_true.ready && block == g_true.dst) g_true.ready = false;
++}
++
++}
++
++namespace ps2::gs::gpu {
++bool g_alpha_from_green = false;  // gpu.hpp
+ }
+diff --git a/runtime/src/gs/gpu/gpu.hpp b/runtime/src/gs/gpu/gpu.hpp
+index a7a62ad..e10c068 100644
+--- a/runtime/src/gs/gpu/gpu.hpp
++++ b/runtime/src/gs/gpu/gpu.hpp
+@@ -28,6 +28,8 @@ extern Mode g_current_mode;  // set by init(); read through mode() on every shap
+ inline Mode mode() { return g_current_mode; }
+ bool init(Mode m);
+ void draw(const State &s, const Vertex *v, int count);
++// Set by gs.cpp (PS2_TEX_REMAP with :g) around one draw: its texture's alpha is taken from the texel's green (make_setup, flag 1 << 17).
++extern bool g_alpha_from_green;
+ void image_begin(const State &s);
+ void image_data(const std::uint8_t *data, std::size_t bytes);
+ void local_copy(const State &s);
+@@ -46,6 +48,13 @@ bool attach_surface(const SurfaceTarget &target);
+ void resize_surface(std::uint32_t width, std::uint32_t height);
+ bool has_surface();
+ bool present(const DisplaySource &src);
++// True colour (PS2_TRUE_COLOR=1): a game that draws its frame in 32 bits and copies it 1:1 into a 16-bit buffer to show it
++// (Midnight Club II) loses three bits per channel there, and the GS's dither is not drawn here. true_color_copy, at the first
++// sprite of such a copy, keeps the 32-bit source as it is then; the screen shows that picture instead of the 16-bit buffer
++// while the buffer shown is the one the copy went to. true_color_forget: something else wrote into that buffer (blocks).
++void true_color_copy(std::uint32_t dst_fbp, std::uint32_t src_tbp, std::uint32_t src_tbw, std::uint32_t src_psm);
++void true_color_forget(std::uint32_t block);
++bool true_color_on();
+ double busy_ms();
+ void stats();
+ 
+diff --git a/runtime/src/gs/gpu/gs.wgsl b/runtime/src/gs/gpu/gs.wgsl
+index db25862..f62ee36 100644
+--- a/runtime/src/gs/gpu/gs.wgsl
++++ b/runtime/src/gs/gpu/gs.wgsl
+@@ -20,6 +20,22 @@ override EXPLICIT_FMA: bool = false;
+ // HAS_MIP = true (built in the background, used by the batches that carry a mipmap table). With false every use below folds away.
+ override HAS_MIP: bool = false;
+ 
++// TEX_SS (PS2_TEX_SS=1, off by default: not what the PS2 does), at any resolution: a texture without mip levels that is shrunk more than one texel
++// per sample (a far building's window grid) is sampled at up to 4 x 4 places across the sample's footprint and averaged. One
++// bilinear tap there picks a different window each frame as the view moves (crawling rows of lit windows, moire). The PS2
++// samples it that way too; this is an enhancement, the launcher's Smooth distant textures.
++override TEX_SS: bool = false;
++// DEPTH_FRAC (PS2_DEPTH_FRAC=1, off by default: not what the PS2 does): a 16-bit depth buffer keeps 8 bits of each depth's fraction
++// beside it, and the depth test compares depth and fraction together. The PS2 drops the fraction, so two surfaces drawn on top of
++// each other far away (a mountain's rock and the snow layer on it, under one depth step apart) take turns as the view moves
++// (SR1Recomp: Smuggler's Run's snow level; MC2Recomp: a distant ramp). The fractions live after the emulated memory in the vram
++// buffer (the host makes it twice as large), 16 bits beside each 16-bit depth: the fraction and the low 8 bits of the depth it
++// belongs to, so a depth that something else wrote (an upload, a copy) counts as having no fraction, as on the PS2.
++override DEPTH_FRAC: bool = false;
++var<private> g_zf: f32 = 0.0;  // the fraction of the depth z_at worked out last (0 for shapes drawn at one depth)
++var<private> g_tex_grad: vec4<f32> = vec4<f32>(0.0);  // du/dx, dv/dx, du/dy, dv/dy for one sample step, in level-0 texels
++var<private> g_tex_grad_on: bool = false;
++
+ // Where a*b+c is fused into one rounding differs between shader compilers: FXC and the graphics drivers fuse their own way and
+ // Microsoft's DXC another, which moved a colour or a texel position by the last bit on a few pixels (docs/speed.md, section DXC).
+ // With EXPLICIT_FMA the sums below are written as fma() in the order the other compilers' pictures show (checked by the memory
+@@ -287,7 +303,11 @@ fn cache_bits_at(offset: u32, bit: u32, count: u32) -> u32 {
+ 
+ @compute @workgroup_size(64)
+ fn upload(@builtin(global_invocation_id) gid: vec3<u32>) {
+-    let i = gid.x + gid.y * 64u * 1024u;
++    // one thread per sample of a scaled picture (gpu.cpp emit_pre dispatches pixels x SCALE x SCALE): one thread writing the 16
++    // samples of a pixel at 4x in a row made each upload a long chain of memory writes (London at 4x: 270 uploads a frame, 2.8 ms)
++    let g = gid.x + gid.y * 64u * 1024u;
++    let i = g / (SCALE * SCALE);
++    let ks = g % (SCALE * SCALE);
+     if (i >= prm(2u)) {
+         return;
+     }
+@@ -320,13 +340,19 @@ fn upload(@builtin(global_invocation_id) gid: vec3<u32>) {
+     // keeps its finer samples: a read gives the first sample of each pixel, and a write of that same value would otherwise
+     // replace the finer depth of a scaled picture with one value per pixel, and the shapes drawn against it afterwards (lights
+     // a hair in front of a slanted ceiling) would fail in stripes. A changed value is written to every sample as before.
++    // (Depth: one thread does all the samples of the pixel, so that the comparison reads the first sample before it is written.)
+     if (SCALE > 1u && (psm == 0x30u || psm == 0x31u || psm == 0x32u || psm == 0x3Au)) {
++        if (ks != 0u) {
++            return;
++        }
+         let l = locate(psm, data[r], data[r + 1u], x, y);
+         if (((atomicLoad(&vram[l.word * SCALE * SCALE]) >> l.shift) & l.mask) == (v & l.mask)) {
+             return;
+         }
++        write_pixel(psm, data[r], data[r + 1u], x, y, v);
++        return;
+     }
+-    write_pixel(psm, data[r], data[r + 1u], x, y, v);
++    store(locate(psm, data[r], data[r + 1u], x, y), ks, v);
+ }
+ 
+ @compute @workgroup_size(64)
+@@ -482,6 +508,9 @@ struct Setup {
+     // setup's table entry starts (word 0 is `mip`, words 1 to 6 the base pointer and buffer width of levels 1 to 6).
+     mip: u32,
+     mip_at: u32,
++    // DIMX, the dither matrix (setup words 40 and 41, gpu.cpp make_setup; PS2_DITHER=1)
++    dimx0: u32,
++    dimx1: u32,
+ }
+ 
+ const F_IIP: u32 = 1u;
+@@ -500,6 +529,8 @@ const F_FBA: u32 = 4096u;
+ const F_TCC: u32 = 8192u;
+ const F_BILINEAR: u32 = 16384u;
+ const F_AEM: u32 = 32768u;
++const F_DTHE: u32 = 65536u;
++const F_A_FROM_G: u32 = 131072u;  // the texel's alpha is its green (gpu.cpp g_alpha_from_green; Midnight Club II's headlight light)
+ 
+ fn load_setup(at: u32) -> Setup {
+     var s: Setup;
+@@ -539,6 +570,8 @@ fn load_setup(at: u32) -> Setup {
+     s.zf = fmt_at(at + 35u);
+     s.mip = 0u;
+     s.mip_at = 0u;
++    s.dimx0 = data[at + 40u];
++    s.dimx1 = data[at + 41u];
+     return s;
+ }
+ 
+@@ -719,12 +752,32 @@ fn tap32(s: Setup, page: u32, n: u32, k: u32) -> u32 {
+     return convert(s, raw & s.tf.mask);
+ }
+ 
+-fn sample(s: Setup, uin: f32, vin: f32, k: u32) -> u32 {
++// Which of a texel's SCALE x SCALE samples a texture read takes (MC1Recomp): the one under the texture position, measured from
++// texel `cell`'s corner (clamped into it for a bilinear neighbour). A texture the game drew itself (Midnight Club's car reflection
++// map, drawn each frame) holds different samples in a texel at SCALE > 1; reading the sample of the screen pixel's own position
++// instead (the old `k`) gave every textured pixel a SCALE-pixel cycle through them, a fine screen-door grid over the cars. A texture
++// sent from the EE has the same value in all of a texel's samples, so it reads exactly as before, and a copy laid on the screen
++// one to one still reads its own samples (the texture position moves with the screen position).
++fn sub_of(t: f32, cell: i32) -> u32 {
++    return u32(clamp(i32(floor((t - f32(cell)) * f32(SCALE))), 0, i32(SCALE) - 1));
++}
++
++// Only textures in a colour format the GS can draw into (32, 24 and 16 bit, read directly) take the sample under the texture
++// position; palette textures (indices sent from the EE) keep the screen sample, as before.
++var<private> g_sub_by_tex: bool = false;
++fn drawn_format(s: Setup) -> bool {
++    return g_sub_by_tex && s.dec == 0xFFFFFFFFu && (s.tpsm == 0x00u || s.tpsm == 0x01u || s.tpsm == 0x02u || s.tpsm == 0x0Au);
++}
++
++fn sample(s: Setup, uin: f32, vin: f32, k_screen: u32) -> u32 {
+     if (rt_copy) {
+         return sample_scaled(s, uin, vin);
+     }
++    let drawn = drawn_format(s);
+     if (!has(s, F_BILINEAR)) {
+-        return fetch(s, i32(floor(uin)), i32(floor(vin)), k);
++        let cx = i32(floor(uin));
++        let cy = i32(floor(vin));
++        return fetch(s, cx, cy, select(k_screen, sub_of(vin, cy) * SCALE + sub_of(uin, cx), drawn));
+     }
+     let u = uin - 0.5;
+     let v = vin - 0.5;
+@@ -734,6 +787,11 @@ fn sample(s: Setup, uin: f32, vin: f32, k: u32) -> u32 {
+     let xb = texel_x(s, x0 + 1);
+     let ya = texel_y(s, y0);
+     let yb = texel_y(s, y0 + 1);
++    // the screen sample (as before) for a palette texture: kya + kxa etc. all come out k_screen
++    let kxa = select(k_screen % SCALE, sub_of(uin, x0), drawn);
++    let kxb = select(k_screen % SCALE, sub_of(uin, x0 + 1), drawn);
++    let kya = select(k_screen - k_screen % SCALE, sub_of(vin, y0) * SCALE, drawn);
++    let kyb = select(k_screen - k_screen % SCALE, sub_of(vin, y0 + 1) * SCALE, drawn);
+     if (s.dec == 0xFFFFFFFFu && s.tpsm <= 1u) {
+         // 32-bit colour: the page position and the position inside the page are separate sums of the x and the y part
+         let pxa = (xa >> 6u) * 8192u + s.tf.base;
+@@ -744,9 +802,9 @@ fn sample(s: Setup, uin: f32, vin: f32, k: u32) -> u32 {
+         let nxb = spread_x(xb);
+         let nya = spread_y(ya);
+         let nyb = spread_y(yb);
+-        return blend4(tap32(s, pxa + pya, nxa | nya, k), tap32(s, pxb + pya, nxb | nya, k), tap32(s, pxa + pyb, nxa | nyb, k), tap32(s, pxb + pyb, nxb | nyb, k), u - f32(x0), v - f32(y0));
++        return blend4(tap32(s, pxa + pya, nxa | nya, kya + kxa), tap32(s, pxb + pya, nxb | nya, kya + kxb), tap32(s, pxa + pyb, nxa | nyb, kyb + kxa), tap32(s, pxb + pyb, nxb | nyb, kyb + kxb), u - f32(x0), v - f32(y0));
+     }
+-    return blend4(fetch_at(s, xa, ya, k), fetch_at(s, xb, ya, k), fetch_at(s, xa, yb, k), fetch_at(s, xb, yb, k), u - f32(x0), v - f32(y0));
++    return blend4(fetch_at(s, xa, ya, kya + kxa), fetch_at(s, xb, ya, kya + kxb), fetch_at(s, xa, yb, kyb + kxa), fetch_at(s, xb, yb, kyb + kxb), u - f32(x0), v - f32(y0));
+ }
+ 
+ // Mip level n of the texture as a setup of its own (raster.cpp, level_setup): its base pointer and buffer width from the table, its size
+@@ -815,6 +873,50 @@ fn mip_pick(s: Setup, q: f32) -> Pick {
+     return Pick(u32(whole), lod - whole, linear);
+ }
+ 
++// Smooth distant textures (TEX_SS): up to 4 x 4 reads spread over the sample's footprint (g_tex_grad, shade_at), averaged, for a
++// texture read at its base level without mip levels (`on`); otherwise, or with TEX_SS off, the one read as before.
++fn sample_ss(s: Setup, u: f32, v: f32, k: u32, on: bool) -> u32 {
++    if (!TEX_SS || !on || !g_tex_grad_on || rt_copy) {
++        return sample(s, u, v, k);
++    }
++    let gx = g_tex_grad.xy;
++    let gy = g_tex_grad.zw;
++    // Taps only where the footprint is more than about 1.5 texels across (rounded, not ceil: a footprint of 1.01 texels took 2 x 2
++    // bilinear taps, 16 reads, for no visible change); several taps are single texels, as the average over the footprint is the
++    // filter (a bilinear tap each read 4 texels, up to 64 a pixel: Smooth distant textures cost 9 ms a frame at 4x in Midnight Club).
++    let nx = u32(clamp(floor(length(gx) + 0.5), 1.0, 4.0));
++    let ny = u32(clamp(floor(length(gy) + 0.5), 1.0, 4.0));
++    if (nx * ny == 1u) {
++        return sample(s, u, v, k);
++    }
++    var acc = vec4<f32>(0.0);
++    for (var j = 0u; j < ny; j = j + 1u) {
++        let oy = (f32(j) + 0.5) / f32(ny) - 0.5;
++        for (var i = 0u; i < nx; i = i + 1u) {
++            let ox = (f32(i) + 0.5) / f32(nx) - 0.5;
++            let tu = u + gx.x * ox + gy.x * oy;
++            let tv = v + gx.y * ox + gy.y * oy;
++            let cx = i32(floor(tu));
++            let cy = i32(floor(tv));
++            let c = fetch(s, cx, cy, select(k, sub_of(tv, cy) * SCALE + sub_of(tu, cx), drawn_format(s)));
++            acc = acc + vec4<f32>(vec4<u32>(c & 0xFFu, (c >> 8u) & 0xFFu, (c >> 16u) & 0xFFu, c >> 24u));
++        }
++    }
++    let o = vec4<u32>(clamp(acc / f32(nx * ny) + vec4<f32>(0.5), vec4<f32>(0.0), vec4<f32>(255.0)));
++    return o.x | (o.y << 8u) | (o.z << 16u) | (o.w << 24u);
++}
++
++fn tex_uv(s: Setup, t: vec4<f32>) -> vec2<f32> {
++    if (has(s, F_FST)) {
++        return vec2<f32>(t.x / 16.0, t.y / 16.0);
++    }
++    var q = t.z;
++    if (q == 0.0) {
++        q = 1.0;
++    }
++    return vec2<f32>(t.x / q * f32(1u << s.tw), t.y / q * f32(1u << s.th));
++}
++
+ fn blend4(c00: u32, c10: u32, c01: u32, c11: u32, fx: f32, fy: f32) -> u32 {
+     let a = vec4<f32>(vec4<u32>(c00 & 0xFFu, (c00 >> 8u) & 0xFFu, (c00 >> 16u) & 0xFFu, c00 >> 24u));
+     let b = vec4<f32>(vec4<u32>(c10 & 0xFFu, (c10 >> 8u) & 0xFFu, (c10 >> 16u) & 0xFFu, c10 >> 24u));
+@@ -933,7 +1035,14 @@ fn plot(s: Setup, x: i32, y: i32, k: u32, at: Attr) {
+         zl = addr(s.zf, ux, uy);
+         if (ztst != 1u) {
+             let old = load_at(zl, k) & s.zmax;
+-            if ((ztst == 2u && z < old) || (ztst == 3u && z <= old)) {
++            if (DEPTH_FRAC && s.zmax == 0xFFFFu) {
++                // depth and fraction together (DEPTH_FRAC): 24 bits, the depth above the 8 fraction bits
++                let a = (z << 8u) | depth_frac(at.z, s.zmax);
++                let b = (old << 8u) | frac_at(zl, k, old);
++                if ((ztst == 2u && a < b) || (ztst == 3u && a <= b)) {
++                    return;
++                }
++            } else if ((ztst == 2u && z < old) || (ztst == 3u && z <= old)) {
+                 return;
+             }
+         }
+@@ -990,13 +1099,16 @@ fn plot(s: Setup, x: i32, y: i32, k: u32, at: Attr) {
+                     lv = nv * f32(1u << l.th);
+                 }
+             }
+-            let c = sample(l, lu, lv, k);
++            let c = sample_ss(l, lu, lv, k, levels == 1u && n == 0u && !(HAS_MIP && s.mip != 0u));
+             if (i == 0u) {
+                 t = c;
+             } else {
+                 t = blend_levels(t, c, p.frac);
+             }
+         }
++        if (has(s, F_A_FROM_G)) {
++            t = (t & 0x00FFFFFFu) | (((t >> 8u) & 0xFFu) << 24u);
++        }
+         let tr = i32(t & 0xFFu);
+         let tg = i32((t >> 8u) & 0xFFu);
+         let tb = i32((t >> 16u) & 0xFFu);
+@@ -1149,6 +1261,21 @@ fn plot(s: Setup, x: i32, y: i32, k: u32, at: Attr) {
+             g = g & 0xFF;
+             b = b & 0xFF;
+         }
++        if (has(s, F_DTHE)) {
++            // the GS's dither: DIMX row (y & 3), column (x & 3), a signed 3-bit value added to each channel before the 16-bit frame keeps 5 bits
++            let e = ((u32(y) & 3u) << 2u) | (u32(x) & 3u);
++            var bits = s.dimx0 >> (e * 4u);
++            if (e >= 8u) {
++                bits = s.dimx1 >> ((e - 8u) * 4u);
++            }
++            var d = i32(bits & 7u);
++            if (d >= 4) {
++                d = d - 8;
++            }
++            r = clamp(r + d, 0, 255);
++            g = clamp(g + d, 0, 255);
++            b = clamp(b + d, 0, 255);
++        }
+         var out_a = u32(a & 0xFF);
+         if (has(s, F_FBA)) {
+             out_a = out_a | 0x80u;
+@@ -1161,11 +1288,45 @@ fn plot(s: Setup, x: i32, y: i32, k: u32, at: Attr) {
+     }
+     if (write_z && zte) {
+         store(zl, k, z);
++        if (DEPTH_FRAC && s.zmax == 0xFFFFu) {
++            store_frac(zl, k, ((z & 0xFFu) << 8u) | depth_frac(at.z, s.zmax));
++        }
++    }
++}
++
++// DEPTH_FRAC: the fraction (8 bits) of the depth being drawn; none for a depth cut to the buffer's largest value.
++fn depth_frac(z: u32, zmax: u32) -> u32 {
++    if (z > zmax) {
++        return 0u;
++    }
++    return min(u32(g_zf * 256.0), 255u);
++}
++
++// DEPTH_FRAC: where the 16 bits beside a 16-bit depth are, after the emulated memory (4 MiB per sample) in the vram buffer.
++fn frac_word(l: Loc, k: u32) -> u32 {
++    return (1u << 20u) * SCALE * SCALE + l.word * SCALE * SCALE + k;
++}
++
++// DEPTH_FRAC: the fraction kept for the depth `old` now in the buffer, or 0 when what is kept belongs to another depth (written
++// some other way: an upload, a copy, a draw path that does not keep fractions).
++fn frac_at(l: Loc, k: u32, old: u32) -> u32 {
++    let e = (atomicLoad(&vram[frac_word(l, k)]) >> l.shift) & 0xFFFFu;
++    if ((e >> 8u) != (old & 0xFFu)) {
++        return 0u;
++    }
++    return e & 0xFFu;
++}
++
++fn store_frac(l: Loc, k: u32, value: u32) {
++    let w = frac_word(l, k);
++    let flip = (((atomicLoad(&vram[w]) >> l.shift) & 0xFFFFu) ^ value) & 0xFFFFu;
++    if (flip != 0u) {
++        atomicXor(&vram[w], flip << l.shift);
+     }
+ }
+ 
+ const PRIM_WORDS: u32 = 28u;
+-const SETUP_WORDS: u32 = 40u;
++const SETUP_WORDS: u32 = 42u;  // 40, then DIMX (gpu.cpp kSetupWords)
+ const MIP_WORDS: u32 = 8u;
+ 
+ fn fat(i: u32) -> f32 {
+@@ -1184,6 +1345,7 @@ fn vertex_tex(p: u32, n: u32) -> vec4<f32> {
+ fn z_at(p: u32, d: f32) -> u32 {
+     let z0 = data[p + 24u];
+     let step = floor(d);
++    g_zf = d - step;
+     if (step >= 0.0) {
+         return z0 + u32(min(step, f32(0xFFFFFFFFu - z0)));
+     }
+@@ -1197,7 +1359,12 @@ fn edge_in(w: f32, inclusive: u32) -> bool {
+ fn shade_at(p: u32, s: Setup, x: i32, y: i32, k: u32, px: f32, py: f32) {
+     rt_copy = false;
+     let kind = data[p + 1u];
++    // triangles only: a sprite can take its texture position from the console pixel's corner (point-sampled, a texel or more
++    // a pixel), the same for all of the pixel's samples, and must keep reading the screen sample (a picture drawn elsewhere and
++    // pasted in as a sprite, MC2's turning car on the car select, kept its finer samples that way)
++    g_sub_by_tex = kind == 0u;
+     var at: Attr;
++    g_tex_grad_on = false;
+     switch kind {
+         case 0u {
+             let x0 = fat(p + 4u);
+@@ -1264,6 +1431,21 @@ fn shade_at(p: u32, s: Setup, x: i32, y: i32, k: u32, px: f32, py: f32) {
+             let t2 = vertex_tex(p, 2u);
+             var t = weighted4(t0, t1, t2, w0, w1, w2);
+             t.w = bary1(t0.w, t1.w, t2.w, w1, w2);
++            if (TEX_SS && has(s, F_TME) && !(HAS_MIP && s.mip != 0u)) {
++                // the texture position one sample to the right and one below: the footprint sample_ss spreads its taps over
++                let h = 1.0 / f32(SCALE);
++                let qx = px + h;
++                let ax0 = cross2(x1 - qx, y2 - py, x2 - qx, y1 - py) * inv;
++                let ax1 = cross2(x2 - qx, y0 - py, x0 - qx, y2 - py) * inv;
++                let ty = py + h;
++                let ay0 = cross2(x1 - px, y2 - ty, x2 - px, y1 - ty) * inv;
++                let ay1 = cross2(x2 - px, y0 - ty, x0 - px, y2 - ty) * inv;
++                let uv = tex_uv(s, t);
++                let ux = tex_uv(s, weighted4(t0, t1, t2, ax0, ax1, 1.0 - ax0 - ax1)) - uv;
++                let uy = tex_uv(s, weighted4(t0, t1, t2, ay0, ay1, 1.0 - ay0 - ay1)) - uv;
++                g_tex_grad = vec4<f32>(ux.x, ux.y, uy.x, uy.y);
++                g_tex_grad_on = true;
++            }
+             at = Attr(c.x, c.y, c.z, c.w, t.x, t.y, t.z, t.w, z_at(p, sum2(fat(p + 25u), fat(p + 26u), w1, w2)));
+         }
+         case 1u {
+@@ -1314,6 +1496,7 @@ fn shade_at(p: u32, s: Setup, x: i32, y: i32, k: u32, px: f32, py: f32) {
+                 ty = (uy - y0) / dy;
+             }
+             let c = vertex_attr(p, 1u);
++            g_zf = 0.0;
+             at = Attr(c.x, c.y, c.z, c.w, lerp1(a.x, b.x, tx), lerp1(a.y, b.y, ty), b.z, b.w, data[p + 24u]);
+         }
+         case 2u {
+@@ -1365,6 +1548,7 @@ fn shade_at(p: u32, s: Setup, x: i32, y: i32, k: u32, px: f32, py: f32) {
+             }
+             let c = vertex_attr(p, 0u);
+             let t = vertex_tex(p, 0u);
++            g_zf = 0.0;
+             at = Attr(c.x, c.y, c.z, c.w, t.x, t.y, t.z, t.w, data[p + 24u]);
+         }
+     }
+@@ -1373,14 +1557,29 @@ fn shade_at(p: u32, s: Setup, x: i32, y: i32, k: u32, px: f32, py: f32) {
+ 
+ @compute @workgroup_size(64)
+ fn decode(@builtin(global_invocation_id) gid: vec3<u32>) {
++    // all the decodes of a batch in one dispatch (gpu.cpp flush_batch): record n at prm(0) + n * 4 is setup, destination, words and
++    // the words of the records before it
+     let i = gid.x + gid.y * 64u * 1024u;
+     if (i >= prm(2u)) {
+         return;
+     }
+-    let s = load_setup(prm(0u));
+-    let x = i & ((1u << s.tw) - 1u);
+-    let y = i >> s.tw;
+-    decoded[prm(1u) + i] = convert(s, load_at(addr(s.tf, x, y), 0u));
++    let records = prm(0u);
++    var lo = 0u;
++    var hi = prm(1u);
++    while (hi - lo > 1u) {
++        let mid = (lo + hi) / 2u;
++        if (data[records + mid * 4u + 3u] <= i) {
++            lo = mid;
++        } else {
++            hi = mid;
++        }
++    }
++    let r = records + lo * 4u;
++    let j = i - data[r + 3u];
++    let s = load_setup(data[r]);
++    let x = j & ((1u << s.tw) - 1u);
++    let y = j >> s.tw;
++    decoded[data[r + 1u] + j] = convert(s, load_at(addr(s.tf, x, y), 0u));
+ }
+ 
+ @compute @workgroup_size(64)
+diff --git a/runtime/src/gs/gs.cpp b/runtime/src/gs/gs.cpp
+index 7da9925..5aa6605 100644
+--- a/runtime/src/gs/gs.cpp
++++ b/runtime/src/gs/gs.cpp
+@@ -48,6 +48,7 @@ std::uint64_t g_pmode, g_smode1, g_smode2, g_srfsh, g_synch1, g_synch2, g_syncv;
+ std::uint64_t g_dispfb[2], g_display[2], g_extbuf, g_extdata, g_extwrite, g_bgcolor;
+ std::uint64_t g_csr = 0x551B4000ull, g_imr = 0x7F00ull, g_busdir, g_siglblid;
+ std::uint32_t g_finish_pending = 0;  // FINISH events that arrived while CSR.FINISH was still set; raised as the game clears the bit
++std::vector<std::uint64_t> g_signal_pending;  // SIGNAL writes that arrived while CSR.SIGNAL was still set; raised as the game clears the bit (not in a state)
+ std::uint32_t g_finish_queued = 0;   // FINISH writes that came while an earlier one was still on its way; each gets its own event (not in a state)
+ std::uint64_t g_primitives = 0;
+ constexpr std::uint64_t kFinishDelay = 1000; // EE cycles from the FINISH write to CSR.FINISH
+@@ -89,6 +90,9 @@ std::uint32_t display_height(std::uint64_t disp, std::uint64_t smode2, bool crop
+     const std::uint32_t magv = (static_cast<std::uint32_t>(disp >> 27) & 3u) + 1;
+     std::uint32_t dh = (static_cast<std::uint32_t>(disp >> 44) & 0x7FFu) + 1;
+     if ((smode2 & 3u) == 1u && dh / magv > 576) dh /= 2;
++    // Interlaced frame mode (SMODE2 INT=1, FFMD=1) counts the lines of both fields too, as PCSX2 reads it (MC1Recomp: Midnight Club's
++    // movies set 896 for a 448 line window of their 720x480 frames, which showed 32 lines of empty memory under the picture).
++    else if ((smode2 & 3u) == 3u && dh > 1u) dh /= 2;
+     return shown_lines(dh, crop ? static_cast<std::uint32_t>(disp >> 12) & 0x7FFu : 0u, smode2) / magv;
+ }
+ // The two read circuits of the display (PMODE bits EN1 and EN2). With both on, the picture is circuit 2's, and circuit 1 shows over its own
+@@ -459,6 +463,22 @@ void mip_levels(const Context &c, std::uint32_t bp[7], std::uint32_t bw[7]) {
+     }
+ }
+ 
++// The 256-byte block of GS memory that pixel (x, y) of a buffer lies in (gpu.cpp: which blocks an upload or CLUT load touches).
++std::uint32_t pixel_block(std::uint32_t psm, std::uint32_t bp, std::uint32_t bw, std::uint32_t x, std::uint32_t y) {
++    std::uint32_t a;
++    switch (psm) {
++    case PSMCT16: a = page_address(bp, bw, x, y, 64, 64) + g_off16[y & 63][x & 63]; break;
++    case PSMCT16S: a = page_address(bp, bw, x, y, 64, 64) + g_off16s[y & 63][x & 63]; break;
++    case PSMZ16: a = page_address(bp, bw, x, y, 64, 64) + g_offz16[y & 63][x & 63]; break;
++    case PSMZ16S: a = page_address(bp, bw, x, y, 64, 64) + g_offz16s[y & 63][x & 63]; break;
++    case PSMT8: a = page_address(bp, bw, x, y, 128, 64) + g_off8[y & 63][x & 127]; break;
++    case PSMT4: a = page_address(bp, bw, x, y, 128, 128) + g_off4[y & 127][x & 127] / 2; break;
++    case PSMZ32: case PSMZ24: a = page_address(bp, bw, x, y, 64, 32) + g_offz32[y & 31][x & 63]; break;
++    default: a = page_address(bp, bw, x, y, 64, 32) + g_off32[y & 31][x & 63]; break;
++    }
++    return wrap(a) >> 8;
++}
++
+ std::uint32_t address32(std::uint32_t bp, std::uint32_t bw, std::uint32_t x, std::uint32_t y) {
+     return wrap(page_address(bp, bw, x, y, 64, 32) + g_off32[y & 31][x & 63]);
+ }
+@@ -578,6 +598,7 @@ void reset() {
+     g_imr = 0x7F00ull;
+     g_finish_pending = 0;
+     g_finish_queued = 0;
++    g_signal_pending.clear();
+     if (queue::active()) queue::post(queue::kReset, 0, 0, nullptr, 0);
+     else render_reset();
+ }
+@@ -749,20 +770,141 @@ void transfer(const State &s, std::uint64_t dir) {
+ 
+ }
+ 
++#ifdef PS2_GPU
++// True colour (gpu.hpp): a textured sprite drawn 1:1 from a 32- or 24-bit picture into a 16-bit buffer is the copy a game shows
++// its frame with; the GPU side keeps the 32-bit picture for the screen. Anything else drawn into that buffer over more than a
++// thin line (Midnight Club II blacks out the top row and the left column after its copy) means the buffer is not only the copy.
++static void true_color_watch(const State &s, int needed) {
++    if (!gpu::true_color_on()) return;
++    std::uint64_t attr = s.prim;
++    if (!(s.prmodecont & 1u)) attr = (s.prim & 7u) | (s.prmode & ~7ull);
++    const Context &c = s.ctx[(attr >> 9) & 1u];
++    const std::uint32_t fpsm = static_cast<std::uint32_t>(c.frame >> 24) & 0x3Fu;
++    if (fpsm != 0x02 && fpsm != 0x0A) return;
++    const std::uint32_t fbp = (static_cast<std::uint32_t>(c.frame) & 0x1FFu) * 32u;
++    const std::uint32_t tpsm = static_cast<std::uint32_t>(c.tex0 >> 20) & 0x3Fu;
++    const Vertex &a = s.queue[0], &b = s.queue[needed - 1];
++    const std::int32_t dx = std::abs(static_cast<std::int32_t>(b.x) - static_cast<std::int32_t>(a.x)), dy = std::abs(static_cast<std::int32_t>(b.y) - static_cast<std::int32_t>(a.y));
++    const bool copy = (attr & 7u) == 6u && (attr & 0x10u) && (attr & 0x100u) && (tpsm == 0x00 || tpsm == 0x01) &&
++                      dx == std::abs(static_cast<std::int32_t>(b.u) - static_cast<std::int32_t>(a.u)) &&
++                      dy == std::abs(static_cast<std::int32_t>(b.v) - static_cast<std::int32_t>(a.v));
++    if (copy) {
++        gpu::true_color_copy(fbp, static_cast<std::uint32_t>(c.tex0 & 0x3FFFu), static_cast<std::uint32_t>(c.tex0 >> 14) & 0x3Fu, tpsm);
++        return;
++    }
++    if (static_cast<std::int64_t>(dx >> 4) * (dy >> 4) > 2048 || needed == 3) gpu::true_color_forget(fbp);
++}
++#endif
++
++// PS2_SKIP_TEXTURE=<tbp>[,<tbp>...] (hex block addresses, as the draw trace prints them): textured primitives that read one
++// of these GS memory blocks and draw somewhere else are not drawn. For switching off a game's post effect whose last step
++// lays a buffer of its own over the picture (Midnight Club II's dark outline around the race cars: 2D40, the launcher's
++// "Car outlines" option off).
++static bool skipped_texture(const State &s) {
++    static const std::vector<std::uint32_t> blocks = [] {
++        std::vector<std::uint32_t> v;
++        for (const char *p = std::getenv("PS2_SKIP_TEXTURE"); p && *p;) {
++            char *end = nullptr;
++            const unsigned long b = std::strtoul(p, &end, 16);
++            if (end == p) break;
++            v.push_back(static_cast<std::uint32_t>(b));
++            p = *end == ',' ? end + 1 : end;
++        }
++        return v;
++    }();
++    if (blocks.empty()) [[likely]] return false;
++    std::uint64_t attr = s.prim;
++    if (!(s.prmodecont & 1u)) attr = (s.prim & 7u) | (s.prmode & ~7ull);
++    if (!(attr & 0x10u)) return false;
++    const Context &c = s.ctx[(attr >> 9) & 1u];
++    const std::uint32_t tbp = static_cast<std::uint32_t>(c.tex0 & 0x3FFFu), fbp = static_cast<std::uint32_t>(c.frame & 0x1FFu) * 32u;
++    return tbp != fbp && std::find(blocks.begin(), blocks.end(), tbp) != blocks.end();
++}
++
++// PS2_SKIP_SUBTRACT=<fbp>[,<fbp>...] (hex block addresses): blended primitives that subtract their colour from one of these frame
++// buffers (ALPHA A = 0, B = Cs: (0 - Cs) * C + Cd) are not drawn. Midnight Club II builds its headlight glow in 1D40: the light
++// cones, then the race cars' shapes subtracted from them so the cars are not lit, then a blur and a brightening of the picture by
++// it; the blurred cut-out is the dark rim round the race cars. Without the subtraction the glow stays and the rim goes (the
++// launcher's "Remove Car Outlines").
++static bool skipped_subtract(const State &s) {
++    static const std::vector<std::uint32_t> blocks = [] {
++        std::vector<std::uint32_t> v;
++        for (const char *p = std::getenv("PS2_SKIP_SUBTRACT"); p && *p;) {
++            char *end = nullptr;
++            const unsigned long b = std::strtoul(p, &end, 16);
++            if (end == p) break;
++            v.push_back(static_cast<std::uint32_t>(b));
++            p = *end == ',' ? end + 1 : end;
++        }
++        return v;
++    }();
++    if (blocks.empty()) [[likely]] return false;
++    std::uint64_t attr = s.prim;
++    if (!(s.prmodecont & 1u)) attr = (s.prim & 7u) | (s.prmode & ~7ull);
++    if (!(attr & 0x40u)) return false;  // ABE
++    const Context &c = s.ctx[(attr >> 9) & 1u];
++    if ((c.alpha & 3u) != 2u || ((c.alpha >> 2) & 3u) != 0u) return false;  // A = 0, B = Cs
++    const std::uint32_t fbp = static_cast<std::uint32_t>(c.frame & 0x1FFu) * 32u;
++    return std::find(blocks.begin(), blocks.end(), fbp) != blocks.end();
++}
++
+ static void kick(bool draw) {
+     State &s = g_state;
+     const std::uint32_t prim = static_cast<std::uint32_t>(s.prim) & 7u;
+     const int needed = prim == 0 ? 1 : (prim == 1 || prim == 2 || prim == 6) ? 2 : prim == 7 ? 1 : 3;
+     if (s.count < needed) return;
++    if (draw && (skipped_texture(s) || skipped_subtract(s))) {
++        if (static const bool log = std::getenv("PS2_SKIP_TEXTURE_LOG") != nullptr; log) {
++            static std::uint64_t last = ~0ull;
++            if (last != trace::g_frame) std::fprintf(stderr, "[skip-texture] frame %llu\n", static_cast<unsigned long long>(last = trace::g_frame));
++        }
++        draw = false;
++    }
++    // PS2_TEX_REMAP=<from tbp>:<to tbp>[:g] (hex): a textured primitive that reads GS memory <from> (and draws elsewhere) reads <to>
++    // instead, same buffer width and format; with :g its alpha is the texel's green. Midnight Club II brightens the picture by its
++    // headlight light: drawn into the green of 1D40 at full resolution (a sharp hole where a car blocks a cone), moved into the alpha
++    // of 2D40 by the PS2's channel trick (reading the buffer as 16-bit pixels), then laid over the picture by that alpha. The trick
++    // works on the console's own pixels, so at 2x-4x the light and its holes come out at 1x, a little too wide and soft round the
++    // cars' sharp edges: the dark rim (PCSX2 shows it upscaled too). 2D40:1D40:g reads the light straight from the full-resolution
++    // green instead (the launcher's "Remove Car Outlines").
++    std::uint64_t remap_saved = 0;
++    int remap_ctx = -1;
++    if (static const char *spec = std::getenv("PS2_TEX_REMAP"); spec && draw) {
++        static unsigned from = 0, to = 0;
++        static const bool ok = std::sscanf(spec, "%x:%x", &from, &to) == 2;
++        static const bool green = std::strstr(spec, ":g") != nullptr;
++        std::uint64_t attr = s.prim;
++        if (!(s.prmodecont & 1u)) attr = (s.prim & 7u) | (s.prmode & ~7ull);
++        Context &c = s.ctx[(attr >> 9) & 1u];
++        if (ok && (attr & 0x10u) && (c.tex0 & 0x3FFFu) == from && (c.frame & 0x1FFu) * 32u != from) {
++            remap_ctx = static_cast<int>((attr >> 9) & 1u);
++            remap_saved = c.tex0;
++            c.tex0 = (c.tex0 & ~0x3FFFull) | to;
++            ++g_setup_generation;
++#ifdef PS2_GPU
++            gpu::g_alpha_from_green = green;
++#endif
++        }
++    }
+     if (draw) {
+         if (!trace::g_any || trace::draw(s, needed)) {
+             if (cpu_raster()) raster::draw(s, s.queue, needed);
+ #ifdef PS2_GPU
+-            if (gpu_on()) gpu::draw(s, s.queue, needed);
++            if (gpu_on()) {
++                true_color_watch(s, needed);  // before the draw: a copy keeps the 32-bit picture as it was before the copy writes
++                gpu::draw(s, s.queue, needed);
++            }
+ #endif
+         }
+         ++g_primitives;
+     }
++    if (remap_ctx >= 0) {
++        s.ctx[remap_ctx].tex0 = remap_saved;
++        ++g_setup_generation;
++#ifdef PS2_GPU
++        gpu::g_alpha_from_green = false;
++#endif
++    }
+     switch (prim) {
+     case 2:
+         s.queue[0] = s.queue[1];
+@@ -883,6 +1025,8 @@ void write(std::uint32_t reg, std::uint64_t value) {
+         g_carried = 0;
+ #ifdef PS2_GPU
+         if (gpu_on()) {
++            // an image written into the buffer the screen shows (a film, say): it is not the 32-bit copy any more
++            if ((value & 3u) == 0 || (value & 3u) == 2) gpu::true_color_forget(static_cast<std::uint32_t>(s.bitbltbuf >> 32) & 0x3FFFu);
+             if ((value & 3u) == 0) gpu::image_begin(s);
+             else if ((value & 3u) == 2) gpu::local_copy(s);
+             else if ((value & 3u) == 1 && !cpu_raster()) download_source(s);
+@@ -926,6 +1070,18 @@ void signal(std::uint32_t reg, std::uint64_t value) {
+     const std::uint32_t mask = static_cast<std::uint32_t>(value >> 32), id = static_cast<std::uint32_t>(value);
+     switch (reg) {
+     case 0x60:
++        // The GS stops at a SIGNAL that arrives while CSR.SIGNAL is still set from the one before, and goes on (with the new
++        // label and a new event) when the game clears the bit. Smuggler's Run 2 pairs each SIGNAL id with a stop of its VIF1
++        // chain: two SIGNALs in one burst merged into one event with the second id, and the chain waiting for the first id
++        // never started again (the level never finished loading). The later ones wait here and are raised one by one as the
++        // game clears the bit; what the GS was sent after them is not held back.
++        if (g_csr & 1u) {
++            if (trace_finish()) std::fprintf(stderr, "[gs] SIGNAL write %X/%X f%llu waits behind an earlier one (%zu waiting)\n", id, mask,
++                                             static_cast<unsigned long long>(frame_count()), g_signal_pending.size() + 1);
++            g_signal_pending.push_back(value);
++            break;
++        }
++        if (trace_finish()) std::fprintf(stderr, "[gs] SIGNAL %X/%X f%llu\n", id, mask, static_cast<unsigned long long>(frame_count()));
+         g_siglblid = (g_siglblid & ~static_cast<std::uint64_t>(mask)) | (id & mask);
+         raise(1);
+         break;
+@@ -1167,6 +1323,11 @@ void write_privileged(std::uint32_t address, std::uint64_t value) {
+         if (trace_finish()) std::fprintf(stderr, "[gs] CSR write %llX f%llu csr %llX pending %u\n", static_cast<unsigned long long>(value),
+                                          static_cast<unsigned long long>(frame_count()), static_cast<unsigned long long>(g_csr), g_finish_pending);
+         g_csr &= ~(value & 0x1Fu);
++        if ((value & 1u) && !g_signal_pending.empty()) {
++            const std::uint64_t next = g_signal_pending.front();
++            g_signal_pending.erase(g_signal_pending.begin());
++            signal(0x60, next);
++        }
+         if ((value & 2u) && g_finish_pending) {
+             --g_finish_pending;
+             raise(2);
+@@ -1174,6 +1335,7 @@ void write_privileged(std::uint32_t address, std::uint64_t value) {
+         if (value & 0x200u) {
+             g_finish_pending = 0;
+             g_finish_queued = 0;
++            g_signal_pending.clear();
+             g_csr = 0x551B4000ull;
+             if (queue::active()) queue::post(queue::kSoftReset, 0, 0, nullptr, 0);
+             else soft_reset();
+@@ -1573,6 +1735,7 @@ void render_state(ps2::state::Stream &s) {
+     s.pod(g_siglblid);
+     if (s.version() >= 9) s.pod(g_finish_pending);
+     else g_finish_pending = 0;
++    if (s.loading()) g_signal_pending.clear();
+     if (s.loading()) g_finish_queued = 0;   // a state keeps the event that is on its way, not the ones queued behind it
+     s.pod(g_primitives);
+     s.pod(g_odd_field);
+diff --git a/runtime/src/gs/gs.hpp b/runtime/src/gs/gs.hpp
+index 8c87165..240e260 100644
+--- a/runtime/src/gs/gs.hpp
++++ b/runtime/src/gs/gs.hpp
+@@ -68,6 +68,7 @@ bool interlaced_odd_field();
+ // Base pointer and buffer width of the texture's mip levels 0 to 6 (TEX0, TEX1 MTBA, MIPTBP1/2), the same for both renderers.
+ void mip_levels(const Context &c, std::uint32_t bp[7], std::uint32_t bw[7]);
+ std::uint32_t address32(std::uint32_t bp, std::uint32_t bw, std::uint32_t x, std::uint32_t y);
++std::uint32_t pixel_block(std::uint32_t psm, std::uint32_t bp, std::uint32_t bw, std::uint32_t x, std::uint32_t y);
+ std::uint32_t read_pixel(std::uint32_t psm, std::uint32_t bp, std::uint32_t bw, std::uint32_t x, std::uint32_t y);
+ void write_pixel(std::uint32_t psm, std::uint32_t bp, std::uint32_t bw, std::uint32_t x, std::uint32_t y, std::uint32_t value);
+ 
+diff --git a/runtime/src/iop/cdvd.cpp b/runtime/src/iop/cdvd.cpp
+index 75c3732..2cfd242 100644
+--- a/runtime/src/iop/cdvd.cpp
++++ b/runtime/src/iop/cdvd.cpp
+@@ -131,6 +131,14 @@ void install_cdvd() {
+         for (std::size_t i = 0; i < data.size(); ++i) write8(j.c + static_cast<std::uint32_t>(i), data[i]);
+         finish_read();
+     });
++    register_job(kJobCdSeek, [](const Job &) {
++        g_cd.busy = false;
++        for (int id : g_cd.sync_waiters)
++            if (Thread *t = thread(id)) wake(*t, 0);
++        if (!g_cd.sync_waiters.empty()) reschedule();
++        g_cd.sync_waiters.clear();
++        if (g_cd.callback) call_guest(g_cd.callback, 4);
++    });
+     register_hle_library("cdvdman", 0x0101);
+     def("cdvdman", 4, "sceCdInit", [](Cpu &c) { c.r[2] = 1; });
+     def("cdvdman", 5, "sceCdStandby", [](Cpu &c) { c.r[2] = 1; });
+@@ -138,7 +146,16 @@ void install_cdvd() {
+         if (g_trace_hle) std::fprintf(stderr, "[cdvd] read lsn %u count %u to 0x%08X\n", arg(c, 0), arg(c, 1), arg(c, 2));
+         c.r[2] = start_read(arg(c, 0), arg(c, 1), arg(c, 2), arg(c, 3), false) ? 1u : 0u;
+     });
+-    def("cdvdman", 7, "sceCdSeek", [](Cpu &c) { c.r[2] = 1; });
++    // A seek moves no data, but the drive is busy for a moment and the callback (sceCdCallback) is called with the seek's function
++    // number, 4, when it is done. Smuggler's Run 2's sound driver (AUDIO.IRX) starts every music stream with a seek and goes on
++    // from the callback: with none, its streams never started (no music), and pausing the game waited for them for ever.
++    def("cdvdman", 7, "sceCdSeek", [](Cpu &c) {
++        if (g_cd.busy) { c.r[2] = 0; return; }
++        g_cd.busy = true;
++        g_cd.error = 0;
++        schedule(now() + usec_to_cycles(400), Job{kJobCdSeek});
++        c.r[2] = 1;
++    });
+     def("cdvdman", 8, "sceCdGetError", [](Cpu &c) { c.r[2] = g_cd.error; });
+     def("cdvdman", 10, "sceCdSearchFile", [](Cpu &c) {
+         const std::string name = ram_string(arg(c, 1), 256);
+diff --git a/runtime/src/iop/cdvdfsv.cpp b/runtime/src/iop/cdvdfsv.cpp
+index fba6e2f..7220a4c 100644
+--- a/runtime/src/iop/cdvdfsv.cpp
++++ b/runtime/src/iop/cdvdfsv.cpp
+@@ -11,6 +11,7 @@
+ #include <ctime>
+ #include <vector>
+ 
++
+ namespace ps2::iop {
+ // libs.cpp: a guest size that reaches past the end of memory is said there (rate-limited).
+ void bad_span(const char *what, std::uint32_t address, std::uint64_t size, const char *outcome);
+@@ -55,6 +56,17 @@ std::uint8_t bcd(int v) { return static_cast<std::uint8_t>(((v / 10) << 4) | (v
+ bool g_streaming = false;
+ std::uint32_t g_stream_pos = 0;
+ 
++// sceCdReadChain (N command 0x0F): up to 64 reads in one call, each {sector, count, buffer} (12 bytes; a buffer with bit 0 set is
++// in IOP memory, else in EE memory), ended by an entry of 0xFFFFFFFF; entry 65 holds the read mode and the EE address of the
++// caller's read position, which the IOP raises by each read's bytes as it goes (ps2sdk's libcdvd and cdvdfsv). Midnight Club II
++// loads its menus' data (UI_ASYNC.DAT) this way: answered as done without reading, its main menu waited for the data forever.
++// The chain is kept here until the reads finish (not in save states: a state saved during one, a few ms, loses that read).
++struct ChainRead {
++    std::uint32_t sector, count, buffer;
++};
++std::vector<ChainRead> g_chain;
++std::uint32_t g_chain_pos_addr = 0;
++
+ std::uint64_t delay(std::uint32_t sectors) { return usec_to_cycles(400) + static_cast<std::uint64_t>(sectors) * usec_to_cycles(200); }
+ 
+ void read_to_ee(std::uint32_t sector, std::uint32_t count, std::uint32_t dst) {
+@@ -80,6 +92,29 @@ void install_cdvdfsv() {
+         sif::complete_call(0x80000595u);
+     });
+     register_job(kJobFsvComplete, [](const Job &) { sif::complete_call(0x80000595u); });
++    register_job(kJobFsvChain, [](const Job &j) {
++        for (const ChainRead &r : g_chain)
++            if (!disc::ready(r.sector, r.count)) {
++                schedule(now() + usec_to_cycles(1000), j);
++                return;
++            }
++        std::uint32_t position = 0;
++        for (const ChainRead &r : g_chain) {
++            if (g_trace_hle) std::fprintf(stderr, "[cdvdfsv] chain read lsn %u count %u to %s 0x%08X\n", r.sector, r.count, r.buffer & 1u ? "IOP" : "EE", r.buffer & ~1u);
++            if (r.buffer & 1u) {
++                const std::uint32_t dst = r.buffer & ~1u, count = iop_sectors(dst, r.count);
++                std::vector<std::uint8_t> data(static_cast<std::size_t>(count) * disc::kSector);
++                disc::read(r.sector, count, data.data());
++                for (std::size_t i = 0; i < data.size(); ++i) write8(dst + static_cast<std::uint32_t>(i), data[i]);
++            } else {
++                read_to_ee(r.sector, ee_sectors(r.buffer, r.count), r.buffer);
++            }
++            position += r.count * disc::kSector;
++            if (g_chain_pos_addr) set_ee32(g_chain_pos_addr, position);
++        }
++        g_chain.clear();
++        sif::complete_call(0x80000595u);
++    });
+     register_job(kJobFsvIopRead, [](const Job &j) {
+         if (!disc::ready(j.a, j.b)) {
+             schedule(now() + usec_to_cycles(1000), j);
+@@ -174,6 +209,23 @@ void install_cdvdfsv() {
+             schedule(now() + delay(count), Job{kJobFsvIopRead, sector, count, dst});
+             return false;
+         case 0x0E: set_ee32(ret, 2); return true;
++        case 0x0F: {
++            g_chain.clear();
++            std::uint32_t sectors = 0;
++            for (std::uint32_t i = 0; i < 64; ++i) {
++                const std::uint32_t at = args + i * 12, lsn = ee32(at), n = ee32(at + 4), buffer = ee32(at + 8);
++                if (lsn == 0xFFFFFFFFu || n == 0xFFFFFFFFu || buffer == 0xFFFFFFFFu) break;
++                g_chain.push_back({lsn, n, buffer});
++                sectors += n;
++                disc::ready(lsn, n);
++            }
++            g_chain_pos_addr = ee32(args + 65 * 12 + 4);
++            if (g_chain_pos_addr) set_ee32(g_chain_pos_addr, 0);
++            if (ret_size >= 4) set_ee32(ret, 1);
++            if (g_trace_hle) std::fprintf(stderr, "[cdvdfsv] read chain of %zu reads, %u sectors\n", g_chain.size(), sectors);
++            schedule(now() + delay(sectors), Job{kJobFsvChain});
++            return false;
++        }
+         default:
+             std::fprintf(stderr, "[cdvdfsv] N command 0x%X\n", method);
+             set_ee32(ret, 1);
+diff --git a/runtime/src/iop/kernel.hpp b/runtime/src/iop/kernel.hpp
+index b6efce0..fdbbbf4 100644
+--- a/runtime/src/iop/kernel.hpp
++++ b/runtime/src/iop/kernel.hpp
+@@ -65,6 +65,8 @@ enum JobKind : std::uint32_t {
+     kJobFsvIopRead,
+     kJobSifDmaCallback,
+     kJobSifReply,
++    kJobFsvChain,
++    kJobCdSeek,
+     kJobCount
+ };
+ struct Job {
+diff --git a/runtime/src/iop/spu2.cpp b/runtime/src/iop/spu2.cpp
+index 02170e6..021a5f2 100644
+--- a/runtime/src/iop/spu2.cpp
++++ b/runtime/src/iop/spu2.cpp
+@@ -47,7 +47,10 @@ struct Envelope {
+         if (++counter < cycles) return;
+         counter = 0;
+         int delta = (decrease ? -8 + (rate & 3) : 7 - (rate & 3)) << std::max(0, 11 - shift);
+-        if (exponential && decrease) delta = delta * level / 0x8000;
++        // A shift, as the chip does, so the step rounds down: dividing rounded it towards zero, so a slow exponential release stopped
++        // at a level where delta * level < 0x8000 (4095 at the slowest rates) and the voice never ended. A game that waits for its
++        // voices to end before using them again then ran out of voices (Midnight Club II's engine sound went missing after a while).
++        if (exponential && decrease) delta = (delta * level) >> 15;
+         level = std::clamp(level + delta, 0, 0x7FFF);
+     }
+ };
+@@ -465,6 +468,13 @@ void tick() {
+                 ++active;
+                 ++phases[v.phase];
+             }
++            // PS2_SPU2_SOLO=<mask of core 1's voices, hex>: debugging, only those voices are heard (a game's music stream alone)
++            static const std::uint32_t solo = [] { const char *s = std::getenv("PS2_SPU2_SOLO"); return s ? static_cast<std::uint32_t>(std::strtoul(s, nullptr, 16)) : 0u; }();
++            if (solo && !(c == 1 && (solo >> i & 1u))) {
++                static std::int32_t none[kBatch][2];
++                render_voice(v, static_cast<unsigned>(i), route, none, none, nullptr);
++                continue;
++            }
+             render_voice(v, static_cast<unsigned>(i), route, sum[c], wet[c], i == 1 ? rings[c][2] : i == 3 ? rings[c][3] : nullptr);
+         }
+         for (unsigned n = 0; n < kBatch; ++n) {
+@@ -613,8 +623,25 @@ std::uint32_t read_core(int core, std::uint32_t off) {
+     case 0x340:
+     case 0x342: {
+         std::uint32_t endx = 0;
+-        for (int i = 0; i < 24; ++i)
+-            if (k.voices[i].end) endx |= 1u << i;
++        for (int i = 0; i < 24; ++i) {
++            Voice &v = k.voices[i];
++            // A voice that is off still runs on the chip: its address keeps stepping through sound memory, and the first block with
++            // the end flag sets its ENDX bit (libsd parks idle voices on a short silent block that has one). Off voices are not
++            // decoded here, so the bit is set when the game looks: if a block with the end flag lies ahead of where the voice is
++            // (or of its start address, if it never played). MC1Recomp: Midnight Club's sound driver (IOPAUDIO) gives a sound only
++            // a voice whose ENDX bit is set; without this no voice was ever free and the menus had no sound at all.
++            if (!v.end && !v.key_on && v.phase == kOff) {
++                std::uint32_t at = (v.next ? v.next : v.ssa) & kRamMask & ~7u;
++                for (int b = 0; b < 4096; ++b) {
++                    if ((g_ram[at] >> 8) & 1u) {
++                        v.end = true;
++                        break;
++                    }
++                    at = (at + 8) & kRamMask;
++                }
++            }
++            if (v.end) endx |= 1u << i;
++        }
+         return off == 0x340 ? endx & 0xFFFFu : endx >> 16;
+     }
+     case 0x344:
+@@ -813,8 +840,15 @@ void dump_voices() {
+             const Voice &v = g_cores[c].voices[i];
+             if (v.phase == kOff && !v.end) continue;
+             const std::uint16_t header = g_ram[v.block[0] & kRamMask];
+-            std::fprintf(stderr, "[spu2] core %d voice %d phase %d ssa 0x%05X lsax 0x%05X block 0x%05X flags %X next 0x%05X pitch 0x%04X env %d end %d\n", c, i,
+-                         static_cast<int>(v.phase), v.ssa, v.lsax, v.block[0], header >> 8, v.next, v.pitch, v.env.level, v.end ? 1 : 0);
++            std::fprintf(stderr, "[spu2] core %d voice %d phase %d ssa 0x%05X lsax 0x%05X block 0x%05X flags %X next 0x%05X pitch 0x%04X env %d end %d vol %04X %04X\n", c, i,
++                         static_cast<int>(v.phase), v.ssa, v.lsax, v.block[0], header >> 8, v.next, v.pitch, v.env.level, v.end ? 1 : 0, v.voll, v.volr);
++            if (std::getenv("PS2_TRACE_SPU2_DATA")) {
++                std::fprintf(stderr, "[spu2]   data at ssa:");
++                for (std::uint32_t w = 0; w < 12; ++w) std::fprintf(stderr, " %04X", g_ram[(v.ssa + w) & kRamMask]);
++                std::fprintf(stderr, " | at block:");
++                for (std::uint32_t w = 0; w < 12; ++w) std::fprintf(stderr, " %04X", g_ram[(v.block[0] + w) & kRamMask]);
++                std::fputc(10, stderr);
++            }
+         }
+ }
+ 
+diff --git a/runtime/src/ipu/ipu.cpp b/runtime/src/ipu/ipu.cpp
+index ce79bf3..1385225 100644
+--- a/runtime/src/ipu/ipu.cpp
++++ b/runtime/src/ipu/ipu.cpp
+@@ -124,6 +124,7 @@ std::uint16_t g_vqclut[16];
+ std::uint16_t g_th0 = 0, g_th1 = 0;
+ std::int16_t g_dc[3];
+ std::uint64_t g_commands[16], g_stalls = 0, g_out_qwords = 0;
++std::uint64_t g_decode_frame = 0;  // frame of the last IDEC/BDEC (not saved in states: a hint for the picture shape)
+ 
+ // PS2_DUMP_IPU=file writes every byte the IPU takes in (DMA or FIFO writes) to that file, to compare the game's feed with the disc.
+ void dump_input(const std::uint8_t *bytes, std::size_t n) {
+@@ -848,6 +849,7 @@ void write32(std::uint32_t a, std::uint32_t v) {
+         g_ctrl &= ~(kEcd | kScd);
+         g_starved = false;
+         ++g_commands[v >> 28];
++        if ((v >> 28) == 1u || (v >> 28) == 2u) g_decode_frame = ps2::frame_count();
+         g_command = v;
+         g_last = static_cast<int>(v >> 28);
+         g_busy = g_decoding = g_interrupt = true;
+@@ -904,6 +906,8 @@ void read_fifo(std::uint8_t *qword) {
+ 
+ void dma_started(int) { step(); }
+ 
++std::uint64_t last_decode_frame() { return g_decode_frame; }
++
+ void stats() {
+     std::fprintf(stderr, "[ipu] commands:");
+     for (int i = 0; i < 16; ++i)
+diff --git a/runtime/src/ipu/ipu.hpp b/runtime/src/ipu/ipu.hpp
+index 5dc3f1e..22ff750 100644
+--- a/runtime/src/ipu/ipu.hpp
++++ b/runtime/src/ipu/ipu.hpp
+@@ -17,5 +17,7 @@ void write_fifo(const std::uint8_t *qword);
+ void read_fifo(std::uint8_t *qword);
+ void dma_started(int channel);
+ void stats();
++// The frame of the last picture decode command (IDEC/BDEC): a video, or an animated picture, is playing.
++std::uint64_t last_decode_frame();
+ 
+ }
+diff --git a/runtime/src/kernel.cpp b/runtime/src/kernel.cpp
+index 2f2f625..ca73942 100644
+--- a/runtime/src/kernel.cpp
++++ b/runtime/src/kernel.cpp
+@@ -472,12 +472,28 @@ void service(Cpu &c) {
+     if (g_in_handler) return;
+     run_alarms(c);
+     if (interrupts_enabled()) {
++        // Fair turns (MC1Recomp): a DMA transfer ends at once here, so a game that streams its drawing as a chain of small VIF1
++        // transfers, each ending in an interrupt whose handler starts the next, keeps channel 1 pending without a break. Taking
++        // the lowest pending channel every time (and the DMAC before the INTC) then left the SIF0 interrupt (channel 5, the IOP's
++        // replies) waiting for frames: Midnight Club, blocked in sceSifCallRpc for its rumble and sound, fell to about 10 frames
++        // a second while scraping a wall. On the console the transfers take time and the other interrupts get in between. So the
++        // pending DMAC channels take turns, starting after the one served last, and the DMAC and the INTC alternate.
++        static unsigned next_dmac = 0;
++        static bool intc_turn = false;
+         for (unsigned guard = 0; guard < 16; ++guard) {
+             const std::uint32_t pending = hw::intc_pending();
+             const std::uint32_t dmac = hw::dmac_pending();
+             if (!pending && !dmac) break;
+-            if (dmac) run_dmac(c, static_cast<unsigned>(std::countr_zero(dmac)));
+-            else run_intc(c, static_cast<unsigned>(std::countr_zero(pending)));
++            if (dmac && (!pending || !intc_turn)) {
++                const std::uint32_t rotated = ((dmac >> next_dmac) | (dmac << (10u - next_dmac))) & 0x3FFu;
++                const unsigned channel = (next_dmac + static_cast<unsigned>(std::countr_zero(rotated))) % 10u;
++                next_dmac = (channel + 1u) % 10u;
++                intc_turn = true;
++                run_dmac(c, channel);
++            } else {
++                intc_turn = false;
++                run_intc(c, static_cast<unsigned>(std::countr_zero(pending)));
++            }
+         }
+     }
+     // Threads start with kIdle as their return address, and the idle loop is the only other way to get
+diff --git a/runtime/src/system.cpp b/runtime/src/system.cpp
+index 199204d..d30c843 100644
+--- a/runtime/src/system.cpp
++++ b/runtime/src/system.cpp
+@@ -162,16 +162,27 @@ void apply_presses() {
+     std::uint64_t last = 0;
+     for (const Press &p : g_options.presses) last = std::max<std::uint64_t>(last, p.frame + p.frames);
+     if (!g_options.presses.empty() && g_frames <= last) {
+-        std::uint16_t mask = 0;
+-        std::uint8_t stick = 0;
+-        for (const Press &p : g_options.presses)
++        std::uint16_t mask[2] = {};
++        std::uint8_t stick[2] = {};
++        bool second = false;
++        for (const Press &p : g_options.presses) {
++            second = second || p.pad == 1;
+             if (g_frames >= p.frame && g_frames < p.frame + p.frames) {
+-                mask |= p.buttons;
+-                stick |= p.stick;
++                mask[p.pad & 1u] |= p.buttons;
++                stick[p.pad & 1u] |= p.stick;
+             }
+-        set_pad_buttons(mask, 0);
+-        set_pad_axis(2, (stick & 4u) ? 0x00 : (stick & 8u) ? 0xFF : 0x80, 0);
+-        set_pad_axis(3, (stick & 1u) ? 0x00 : (stick & 2u) ? 0xFF : 0x80, 0);
++        }
++        // A run with presses for the second controller has it plugged in from the start
++        static bool plugged = false;
++        if (second && !plugged) {
++            set_pad_connected(1, true);
++            plugged = true;
++        }
++        for (int pad = 0; pad < (second ? 2 : 1); ++pad) {
++            set_pad_buttons(mask[pad], pad);
++            set_pad_axis(2, (stick[pad] & 4u) ? 0x00 : (stick[pad] & 8u) ? 0xFF : 0x80, pad);
++            set_pad_axis(3, (stick[pad] & 1u) ? 0x00 : (stick[pad] & 2u) ? 0xFF : 0x80, pad);
++        }
+     }
+     if (!g_options.axis_presses.empty()) {
+         // Outside a hold the stick rests; within one it takes the given tilt.
+@@ -233,7 +244,31 @@ void time_frames() {
+ }
+ 
+ void apply_patches(bool boot) {
+-    for (const Patch &p : g_options.patches) {
++    // PS2_POKE=<frame>:<hex address>:<bytes>:<hex value>[;...]: write that value once, at the start of that frame (porting aid:
++    // switch an option word or a game variable part way through a run)
++    if (static const char *poke = std::getenv("PS2_POKE"); poke && !boot) {
++        for (const char *p = poke; p && *p;) {
++            unsigned long long frame = 0, value = 0;
++            unsigned address = 0, bytes = 0;
++            if (std::sscanf(p, "%llu:%x:%u:%llx", &frame, &address, &bytes, &value) == 4 && frame == g_frames) {
++                if (bytes == 1) st8(address, static_cast<std::uint8_t>(value));
++                else if (bytes == 2) st16(address, static_cast<std::uint16_t>(value));
++                else st32(address, static_cast<std::uint32_t>(value));
++                std::fprintf(stderr, "[poke] frame %llu: %08X = %llX\n", frame, address, value);
++            }
++            p = std::strchr(p, ';');
++            if (p) ++p;
++        }
++    }
++    // place 3 is a condition, as PCSX2's E0 code: "3 ADDRESS N VALUE" applies the next N lines only while the 16-bit value at
++    // ADDRESS is VALUE (MC1Recomp: Midnight Club's widescreen patch uses another aspect on the car select screen)
++    const auto &list = g_options.patches;
++    for (std::size_t i = 0; i < list.size(); ++i) {
++        const Patch &p = list[i];
++        if (p.place == 3) {
++            if (ld16(p.address) != static_cast<std::uint16_t>(p.value)) i += p.bytes;
++            continue;
++        }
+         if (boot ? p.place == 1 : p.place == 0) continue;
+         switch (p.bytes) {
+         case 1: st8(p.address, static_cast<std::uint8_t>(p.value)); break;
+@@ -291,8 +326,115 @@ void report_load() {
+     last_frame = g_frames;
+ }
+ 
++// PS2_WIDE_ONLY_IF=ADDR=VALUE (or ADDR!=VALUE; hex address, 32-bit word, value hex with 0x or decimal), with --widescreen: the
++// picture is 16:9 only while that word of main memory says the game is in its widescreen part (a race, say) and no video is
++// playing (no picture decode by the IPU in the last 15 frames); otherwise 4:3 (menus, videos: drawn for 4:3 only). With
++// PS2_WIDE_WORD=ADDR the answer (1 or 0) is also written each frame into that 16-bit word of main memory, the option word a
++// switchable widescreen patch checks, so the game's projection follows the picture. Several conditions joined by '&' must all
++// hold (Midnight Club II: 00436C48=0x12&0042708C=0, in a race and its loading screen done).
++// PS2_WIDE_FLOAT=ADDR (hex) is a 32-bit float the game works out from the aspect only now and then (Midnight Club II: its
++// display setup at 0x36C880 stores aspect * height / width at 0x42FAB4, at boot and seldom after), so it can hold the other
++// shape's value: the menus' 3D (the controller picture, the turning cars) came out squeezed. When the option word changes, the
++// runtime rescales it by 16:9 / 4:3; a value the game wrote itself counts as made with the option word as it was then.
++std::atomic<bool> g_wide_now{false};
++
++void update_wide() {
++    struct Test {
++        bool equal = true;
++        std::uint32_t address = 0, value = 0;
++    };
++    struct Rule {
++        bool on = false, equal = true;
++        std::uint32_t address = 0, value = 0, word = 0;
++        bool has_word = false;
++        std::vector<Test> also;  // the conditions after the first one ('&')
++    };
++    static const Rule rule = [] {
++        Rule r;
++        const std::string all = os::env("PS2_WIDE_ONLY_IF");
++        if (!g_options.widescreen || all.empty()) return r;
++        std::vector<Test> tests;
++        for (std::size_t from = 0; from <= all.size();) {
++            std::size_t amp = all.find('&', from);
++            if (amp == std::string::npos) amp = all.size();
++            const std::string spec = all.substr(from, amp - from);
++            from = amp + 1;
++            const std::size_t eq = spec.find('=');
++            if (eq == std::string::npos || eq == 0) {
++                std::fprintf(stderr, "[wide] PS2_WIDE_ONLY_IF=%s: '%s' is not ADDR=VALUE or ADDR!=VALUE: ignored\n", all.c_str(), spec.c_str());
++                return r;
++            }
++            Test t;
++            t.equal = spec[eq - 1] != '!';
++            t.address = static_cast<std::uint32_t>(std::strtoul(spec.substr(0, t.equal ? eq : eq - 1).c_str(), nullptr, 16)) & (kRamSize - 4);
++            t.value = static_cast<std::uint32_t>(std::strtoul(spec.c_str() + eq + 1, nullptr, 0));
++            tests.push_back(t);
++        }
++        r.equal = tests[0].equal, r.address = tests[0].address, r.value = tests[0].value;
++        r.also.assign(tests.begin() + 1, tests.end());
++        const std::string word = os::env("PS2_WIDE_WORD");
++        if (!word.empty()) {
++            r.word = static_cast<std::uint32_t>(std::strtoul(word.c_str(), nullptr, 16)) & (kRamSize - 2);
++            r.has_word = true;
++        }
++        r.on = true;
++        std::fprintf(stderr, "[wide] 16:9 only while the word at %08X %s %u%s and no video plays%s\n", r.address, r.equal ? "==" : "!=", r.value,
++                     r.also.empty() ? "" : " (and the other conditions of PS2_WIDE_ONLY_IF)", r.has_word ? " (mirrored into the option word)" : "");
++        return r;
++    }();
++    if (!rule.on) {
++        g_wide_now.store(g_options.widescreen, std::memory_order_relaxed);
++        return;
++    }
++    std::uint32_t v = 0;
++    std::memcpy(&v, g_ram + rule.address, 4);
++    bool game = (v == rule.value) == rule.equal;
++    for (const Test &t : rule.also) {
++        std::uint32_t tv = 0;
++        std::memcpy(&tv, g_ram + t.address, 4);
++        game = game && (tv == t.value) == t.equal;
++    }
++    const std::uint64_t decoded = ipu::last_decode_frame();
++    const bool video = decoded && g_frames - decoded < 15;
++    const bool wide = game && !video;
++    if (rule.has_word) {
++        static const std::uint32_t float_at = [] {
++            const std::string f = os::env("PS2_WIDE_FLOAT");
++            return f.empty() ? 0u : static_cast<std::uint32_t>(std::strtoul(f.c_str(), nullptr, 16)) & (kRamSize - 4);
++        }();
++        if (float_at) {
++            static float written = 0.0f;
++            static bool made_wide = false;
++            float f = 0.0f;
++            std::memcpy(&f, g_ram + float_at, 4);
++            if (f != written) {  // the game worked it out again: with the option word as it is in memory now
++                std::uint16_t old = 0;
++                std::memcpy(&old, g_ram + rule.word, 2);
++                made_wide = old == 1;
++                written = f;
++            }
++            if (f != 0.0f && made_wide != wide) {
++                f *= wide ? 4.0f / 3.0f : 3.0f / 4.0f;
++                std::memcpy(g_ram + float_at, &f, 4);
++                written = f;
++                made_wide = wide;
++                static const bool log = !os::env("PS2_WIDE_LOG").empty();
++                if (log) std::fprintf(stderr, "[wide] frame %llu: %08X rescaled to %g for %s\n", static_cast<unsigned long long>(g_frames), float_at, f, wide ? "16:9" : "4:3");
++            }
++        }
++        const std::uint16_t w = wide ? 1 : 0;
++        std::memcpy(g_ram + rule.word, &w, 2);
++    }
++    if (wide != g_wide_now.load(std::memory_order_relaxed)) {
++        static const bool log = !os::env("PS2_WIDE_LOG").empty();
++        if (log) std::fprintf(stderr, "[wide] frame %llu: %s (word %08X, video %d)\n", static_cast<unsigned long long>(g_frames), wide ? "16:9" : "4:3", v, video ? 1 : 0);
++        g_wide_now.store(wide, std::memory_order_relaxed);
++    }
++}
++
+ void vblank() {
+     ++g_frames;
++    update_wide();
+     // Offline EE cache preparation: capture only explicitly requested frames.
+     // Disabled for normal runs; the filenames retain the frame and address so
+     // a headless preparer can associate each image with the scripted input.
+@@ -621,6 +763,7 @@ std::string quick_newest_state() { return {}; }
+ #endif
+ 
+ std::uint64_t frame_count() { return g_frames; }
++bool widescreen_now() { return g_wide_now.load(std::memory_order_relaxed); }
+ 
+ bool load_elf(const std::string &path, std::uint32_t &entry) {
+     std::ifstream file(os::path(path), std::ios::binary);
+@@ -1008,11 +1151,16 @@ bool parse_press(const std::string &spec, Press &press) {
+     }
+     press.buttons = 0;
+     press.stick = 0;
++    press.pad = 0;
+     static const char *const kStick[4] = {"lup", "ldown", "lleft", "lright"};
+     std::size_t start = 0;
+     while (start <= rest.size()) {
+         const auto plus = rest.find('+', start);
+-        const std::string name = rest.substr(start, plus == std::string::npos ? std::string::npos : plus - start);
++        std::string name = rest.substr(start, plus == std::string::npos ? std::string::npos : plus - start);
++        if (name.size() > 2 && name.compare(0, 2, "p2") == 0) {  // the second controller (MC1Recomp: scripted 2-player runs)
++            press.pad = 1;
++            name = name.substr(2);
++        }
+         int bit = -1;
+         for (int i = 0; i < 16; ++i)
+             if (name == kNames[i]) bit = i;
+diff --git a/runtime/src/vif.cpp b/runtime/src/vif.cpp
+index 450889b..6ff44aa 100644
+--- a/runtime/src/vif.cpp
++++ b/runtime/src/vif.cpp
+@@ -426,7 +426,11 @@ void execute(int unit, std::uint32_t cmd, const std::uint32_t *data, const Ctx &
+     case 0x04: u.itops = imm & 0x3FFu; break;
+     case 0x05: u.mode = imm & 3u; break;
+     case 0x06: gif::set_path3_masked((imm >> 15) & 1u); break;
+-    case 0x07: u.mark = imm; u.stat |= kStatMrk; break;
++    case 0x07:
++        u.mark = imm;
++        u.stat |= kStatMrk;
++        if (unit == 1 && !c.dry) gif::hud_mark(imm);  // in order with the PATH1/PATH2 data around it (gif.cpp)
++        break;
+     case 0x10: case 0x11: case 0x13: break;
+     case 0x14: case 0x15: run_vu(unit, imm * 8u, c); break;
+     case 0x17: run_vu(unit, c.dry ? 0u : vu::tpc(unit), c); break;
+diff --git a/runtime/src/vu_micro.cpp b/runtime/src/vu_micro.cpp
+index 7815557..f3befe4 100644
+--- a/runtime/src/vu_micro.cpp
++++ b/runtime/src/vu_micro.cpp
+@@ -1179,9 +1179,25 @@ void run_fast(int n, std::uint32_t address) {
+     static const bool count = std::getenv("PS2_VU_COUNT") != nullptr;
+     static const bool record_jumps = !ps2::os::env("PS2_VU_RECORD").empty() || static_cast<bool>(g_options.on_vu_program);
+     if (count && ++calls % 20000 == 0) std::fprintf(stderr, "[vu1] %llu calls, %llu instructions\n", (unsigned long long)calls, (unsigned long long)total);
++    // PS2_VU_INTERPRET (interpreter only) and PS2_VU_NO_HANDOFF keep a started program in the interpreter to its end
++    static const bool no_handoff = std::getenv("PS2_VU_INTERPRET") != nullptr || std::getenv("PS2_VU_NO_HANDOFF") != nullptr;
++    std::uint32_t handoff = ~0u;
+     BranchView view;
+     for (std::uint32_t steps = 0; steps < 1'000'000; ++steps, ++total) {
+         if (!(steps & 0xFFu) && halted()) return;  // the window was closed: a program that does not end must not hold the close up for seconds
++        // MC1Recomp: the instruction after a jump (JR / JALR) and its delay slot: when VU1 code there is compiled, go on in it, the
++        // way a compiled program's own jump does (its dispatch: vu::interpret). The interpreter used to run every program it started
++        // to its end; Midnight Club starts two of its busiest programs with a branch in a branch's delay slot (which only the
++        // interpreter does), and they then call a subroutine and jump back to compiled code: 17 % of the emulation thread.
++        if (pc == handoff && n == 1 && !g_reference_dry && !g_capture && !no_handoff) {
++            handoff = ~0u;
++            if (lookup(pc)) {
++                pipe.flush_q(r);
++                r.tpc = pc;
++                interpret(1, pc);
++                return;
++            }
++        }
+         std::uint32_t lo, hi;
+         std::memcpy(&lo, u.code + pc, 4);
+         std::memcpy(&hi, u.code + pc + 4, 4);
+@@ -1212,6 +1228,7 @@ void run_fast(int n, std::uint32_t address) {
+             lower(u, lo, current, target, branch);
+             if (branch) npc = target;
+             if (branch && record_jumps && n == 1 && ((lo >> 25) == 0x24u || (lo >> 25) == 0x25u)) lookup(target);
++            if (branch && n == 1 && ((lo >> 25) == 0x24u || (lo >> 25) == 0x25u)) handoff = target;
+         }
+         u.branch_vi = nullptr;
+         view.commit(was, lo, !(hi & 0x80000000u));
+diff --git a/scripts/port.sh b/scripts/port.sh
+index 5e5e91c..5d0cbab 100755
+--- a/scripts/port.sh
++++ b/scripts/port.sh
+@@ -30,6 +30,9 @@ options:
+   --pnach-section S  also apply the patches under [S] in those files, the way
+                      enabling them in PCSX2 does; lines outside any section
+                      always apply
++  --toggles FILE     switch instructions at run time (ADDRESS WORD COND_ADDRESS
++                     VALUE per line, as eerecomp --toggles): both versions are
++                     translated and the 16-bit value at COND_ADDRESS picks one
+   --widescreen       tell the game the TV is 16:9 and show the picture that
+                      shape; the exploring runs and the line to play with get it
+                      too, and a patch section made for a 16:9 screen turns it on
+@@ -42,7 +45,7 @@ name="$1"; source_path="$2"; shift 2
+ if ! [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || [[ "$name" == .* ]]; then
+   echo "game name '$name': use letters, digits, . _ and - only, not starting with a dot" >&2; exit 2
+ fi
+-frames=3600; rounds=8; explore=1; web=1; presses=(); pnach=(); wide=()
++frames=3600; rounds=8; explore=1; web=1; presses=(); pnach=(); wide=(); user_toggles=
+ while [ $# -gt 0 ]; do
+   case "$1" in
+     --frames) frames="$2"; shift ;;
+@@ -52,6 +55,7 @@ while [ $# -gt 0 ]; do
+     --native-only) web=0 ;;
+     --pnach) [ -f "$2" ] || { echo "$2: no such file" >&2; exit 1; }; pnach+=("$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"); shift ;;
+     --pnach-section) pnach=(--section "$2" "${pnach[@]}"); shift ;;
++    --toggles) [ -f "$2" ] || { echo "$2: no such file" >&2; exit 1; }; user_toggles="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift ;;
+     --widescreen) wide=(--widescreen) ;;
+     -h|--help) usage; exit 0 ;;
+     *) echo "unknown option $1" >&2; exit 2 ;;
+@@ -162,6 +166,7 @@ if [ ${#pnach[@]} -gt 0 ]; then
+   patches=(--patches "$game/patches.txt")
+ fi
+ echo "${elf#$ROOT/}"
++[ -z "$user_toggles" ] || cat "$user_toggles" >> "$game/toggles.txt"  # added to any a patch file made (pnach.py)
+ toggles=()
+ [ ! -f "$game/toggles.txt" ] || toggles=(--toggles "$game/toggles.txt")  # instructions a patch switches at run time (pnach.py)
+ modules=()

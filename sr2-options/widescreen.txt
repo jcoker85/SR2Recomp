@@ -1,0 +1,7 @@
+# [Widescreen 16:9] (the PCSX2 community patch by No.47, SLUS-20204 0EF2C216), as a ps2run --patches line:
+# PLACE ADDRESS BYTES VALUE, place 1 = written every frame, place 2 = at boot and every frame. The float at 0x36EDB8 is the game's own aspect factor (1.0 on
+# an NTSC TV; the game sets it at 0x2E418C and 0x2E5704 and multiplies the view's width by it at 0x2EDDA0): 4/3 makes the
+# view 16:9.
+1 0036EDB8 4 3FAAAAAA
+# The word at 0x000FFF00 says the picture is 16:9: the Fixed Widescreen HUD's code (hud43.pnach) acts only while it is 1.
+2 000FFF00 2 1

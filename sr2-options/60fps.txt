@@ -1,0 +1,7 @@
+# [60 FPS]: ps2run --patches lines. PLACE ADDRESS BYTES VALUE, place 1 = written every frame, place 2 = written at boot and
+# every frame. 0x36EDBC is the game's frame interval in vblanks (2 in the menus and while driving, 1 on the loading
+# screens); the game times itself by the clock, so 1 is 60 frames a second at the same speed. 0x000FFF08 switches the
+# toggles built into the game program (toggles.txt) that keep the rear-view mirror and the radar's terrain, which the game
+# leaves out when its interval is 1.
+1 0036EDBC 4 1
+2 000FFF08 2 1

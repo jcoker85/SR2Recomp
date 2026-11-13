@@ -1,0 +1,3 @@
+# Fixed Widescreen HUD: this file tells the launcher the game program has the HUD's hooks built in (hud43.pnach, made by
+# hud43.py; tools/build.sh builds them in). The launcher switches them with the word at 0x000FFF04 ("2 000FFF04 2 1" in
+# boot.txt); they only act while the widescreen word at 0x000FFF00 is 1 too.

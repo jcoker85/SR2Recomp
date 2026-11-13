@@ -1,0 +1,27 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Smuggler's Run 2: Hostile Territory",
+  "system": "PS2",
+  "type": "recomp",
+  "original": {
+    "region": "USA",
+    "serial": "SLUS-20204"
+  },
+  "project": "SR2Recomp",
+  "status": "in-progress",
+  "targets": ["Windows"],
+  "toolchain": "ps2-native-recomp",
+  "approach": "Static recompilation with widescreen, 60 FPS and higher resolutions",
+  "maintainers": [
+    {
+      "name": "jcoker85",
+      "link": "https://github.com/jcoker85"
+    }
+  ],
+  "links": [
+    {
+      "label": "Source code",
+      "url": "https://github.com/jcoker85/SR2Recomp"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+# Smuggler's Run 2 "4:3 Menus" (the launcher's Menu/Movie Aspect Ratio option): with widescreen on, only the driving (and its
+# pause menu) is 16:9; the front-end menus, the loading screens and the videos are 4:3.
+# NAME=VALUE lines set for the runtime (runtime/src/system.cpp, update_wide):
+#   PS2_WIDE_ONLY_IF  16:9 only while these 32-bit words of EE memory have these values (all of them, joined by &), and no
+#                     IPU picture decode in the last 15 frames (the videos). Found 2026-11-13 by comparing memory through
+#                     the boot videos, the title, the menus, the loading screen, driving, the pause menu and after quitting:
+#                     0x0036FADC is 1 while the game draws a 3D scene (set at 0x2F9B38, cleared at 0x2F993C): from the moment
+#                     the loading screen fades into the level until the player quits, pause menu included, but also on the
+#                     vehicle select screen with its turning car; 0x0036EE6C (read by the game's end-of-frame code at
+#                     0x2E6934) is 1 from late in the loading screen until the player quits, and 0 in every menu. Both 1:
+#                     driving, and nothing else.
+#   PS2_WIDE_WORD     the runtime writes 1/0 into this 16-bit word each frame; widescreen43.txt (the widescreen patch for
+#                     this mode) writes the 16:9 factor while it is 1 and the game's own 1.0 while it is 0.
+PS2_WIDE_ONLY_IF=0036FADC=1&0036EE6C=1
+PS2_WIDE_WORD=000FFF00
