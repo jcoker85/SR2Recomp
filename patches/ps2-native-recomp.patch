@@ -525,6 +525,77 @@ index 6c7c2dc..b761612 100644
      SDL_ShowCursor(SDL_DISABLE);  // no pointer over the game (the title bar and the window's edge still show it)
      g_notice_text = kStartNotice;
      std::fprintf(stderr, "[menu] the quick menu: F1%s on the keyboard, hold Select then press Start (or Guide) on a controller\n",
+diff --git a/recomp/vurecomp_gen.cpp b/recomp/vurecomp_gen.cpp
+index 9c75bb7..360c546 100644
+--- a/recomp/vurecomp_gen.cpp
++++ b/recomp/vurecomp_gen.cpp
+@@ -498,7 +498,28 @@ int vi_written(const std::string &code) {
+     return std::atoi(code.c_str() + at + 10);
+ }
+ 
+-std::string generate(const Program &p, std::string &name) {
++// SR2Recomp: a branch with no link (B, IBxx) whose delay slot holds another branch B2, where the instruction at its target is the
++// same as the one in B2's own delay slot. Taken or not, B2 runs, then that same instruction, then B2's target with the same link:
++// the outer branch changes nothing (the interpreter runs it so too: vu_micro.cpp, the npc chain). It is compiled as a NOP, so the
++// program needs no branch-in-delay-slot support. Smuggler's Run 2 enters its particle program (VU1 0x1420, the smoke and dust,
++// up to 1,000 calls a frame) through such a trampoline, IBNE 0x1438 / BAL 0x1770 / NOP / NOP, which left the whole program to the
++// interpreter. The program's key is still made from the real code (the runtime's lookup sees that); only what is generated
++// changes.
++std::vector<std::uint8_t> quiet_delay_branches(const std::vector<std::uint8_t> &code, std::uint32_t mask, std::uint32_t entry) {
++    std::vector<std::uint8_t> out = code;
++    for (std::uint32_t pc : ps2::vu::reachable(code.data(), mask, entry)) {
++        if (!ps2::vu::branch_in_delay_slot(code.data(), mask, pc)) continue;
++        const std::uint32_t lo = word(code, pc), op = lo >> 25;
++        if (!(op == 0x20 || (op >= 0x28 && op <= 0x2F && op != 0x2A && op != 0x2B))) continue;
++        const std::uint32_t target = ps2::vu::branch_target(lo, pc, mask), slot = (pc + 16u) & mask;
++        if (target == slot || std::memcmp(code.data() + target, code.data() + slot, 8) != 0) continue;
++        const std::uint32_t nop = 0x8000033Cu;  // lower NOP; the upper instruction of the pair stays
++        std::memcpy(out.data() + pc, &nop, 4);
++    }
++    return out;
++}
++
++std::string generate_quiet(const Program &p, std::string &name) {
+     name.clear();
+     const std::uint32_t kMask = p.unit == 0 ? 4095u : 16383u;
+     const std::vector<std::uint32_t> pcs = ps2::vu::reachable(p.code.data(), kMask, p.entry);
+@@ -688,11 +709,17 @@ std::string generate(const Program &p, std::string &name) {
+ 
+ }
+ 
++std::string generate(const Program &p, std::string &name) {
++    Program q = p;
++    q.code = quiet_delay_branches(p.code, p.unit == 0 ? 4095u : 16383u, p.entry);
++    return generate_quiet(q, name);
++}
++
+ namespace ps2::vurecomp {
+ 
+ // Bump this when the generated code changes in a way the headers do not show (a change in this file): libraries made earlier
+ // are then left alone and built again (vu_live.cpp).
+-const char *const kGeneratorVersion = "vurecomp 5";
++const char *const kGeneratorVersion = "vurecomp 5 sr2-quiet-delay-branches";
+ 
+ Result generate_files(std::vector<Input> inputs, const fs::path &out_dir, std::uint64_t live_stamp, std::size_t per_file, bool with_targets) {
+     std::vector<Program> programs;
+@@ -709,7 +736,7 @@ Result generate_files(std::vector<Input> inputs, const fs::path &out_dir, std::u
+             std::fprintf(stderr, "%016llX_%04X: key mismatch, skipped\n", static_cast<unsigned long long>(p.key), p.entry);
+             continue;
+         }
+-        if (ps2::vu::branch_in_delay_slot(p.code.data(), kMask, p.entry)) continue;
++        if (ps2::vu::branch_in_delay_slot(quiet_delay_branches(p.code, kMask, p.entry).data(), kMask, p.entry)) continue;
+         if (recorded_keys.emplace(p.unit, p.key).second) programs.push_back(std::move(p));
+     }
+     std::set<std::pair<int, std::uint64_t>> keys;
+@@ -728,7 +755,7 @@ Result generate_files(std::vector<Input> inputs, const fs::path &out_dir, std::u
+         }
+         for (std::uint32_t target : targets) {
+             const std::uint64_t key = ps2::vu::program_key(programs[i].code.data(), ps2::vu::reachable(programs[i].code.data(), kMask, target), target);
+-            if (ps2::vu::branch_in_delay_slot(programs[i].code.data(), kMask, target)) continue;
++            if (ps2::vu::branch_in_delay_slot(quiet_delay_branches(programs[i].code, kMask, target).data(), kMask, target)) continue;
+             if (keys.emplace(programs[i].unit, key).second) programs.push_back(Program{key, target, programs[i].code, programs[i].unit});
+         }
+     }
 diff --git a/runtime/include/ps2/system.hpp b/runtime/include/ps2/system.hpp
 index d0d445f..06951ad 100644
 --- a/runtime/include/ps2/system.hpp
@@ -563,10 +634,10 @@ index d1ef745..2869c38 100644
              if (!(v & 0x100u)) {
                  c.paused = false;
 diff --git a/runtime/src/gs/gif.cpp b/runtime/src/gs/gif.cpp
-index ead8386..8b85108 100644
+index ead8386..b1d9591 100644
 --- a/runtime/src/gs/gif.cpp
 +++ b/runtime/src/gs/gif.cpp
-@@ -329,11 +329,168 @@ void end_runaway_kick(std::uint32_t address) {
+@@ -329,11 +329,181 @@ void end_runaway_kick(std::uint32_t address) {
      gs::queue::post(gs::queue::kGif, static_cast<std::uint32_t>(1 | kEndPacket), address, nullptr, 0);
  }
  
@@ -586,8 +657,17 @@ index ead8386..8b85108 100644
 +    Path paths[3];
 +    std::int32_t lo = 1 << 30, hi = -(1 << 30);
 +    std::uint32_t vertices = 0;
++    // FRAME_1 is narrower than the screen: the part draws into a small buffer of its own, a texture it uses afterwards
++    // (Smuggler's Run 2's rear-view mirror renders a 64x32 one for its distant trees and bushes). Those draws are left as
++    // they are: squeezed toward the screen's centre they left that buffer, and the trees came out as blue boxes.
++    bool offscreen = false;
 +    std::vector<std::uint8_t> copy;
 +} g_hud;
++
++int hud_width() {  // PS2_HUD_WIDTH: the frame's width in pixels (default 512, Midnight Club II; MC1Recomp: Midnight Club draws 640)
++    static const int width = [] { const char *w = std::getenv("PS2_HUD_WIDTH"); const int v = w ? std::atoi(w) : 0; return v > 0 ? v : 512; }();
++    return width;
++}
 +
 +bool hud_log() {
 +    static const bool on = std::getenv("PS2_HUD_LOG") != nullptr;
@@ -595,6 +675,7 @@ index ead8386..8b85108 100644
 +}
 +
 +std::uint32_t hud_x(std::uint32_t x) {  // a vertex x, 12.4 in primitive coordinates
++    if (g_hud.offscreen) return x;
 +    const std::int32_t window = (static_cast<std::int32_t>(x) - g_hud.ofx[0]) >> 4;
 +    g_hud.lo = std::min(g_hud.lo, window), g_hud.hi = std::max(g_hud.hi, window);
 +    ++g_hud.vertices;
@@ -604,7 +685,7 @@ index ead8386..8b85108 100644
 +}
 +
 +std::uint64_t hud_scissor(std::uint64_t v) {  // SCISSOR: x0 bits 0-10, x1 (inclusive) bits 16-26, window pixels
-+    if (g_hud.anchor < 0) return v;
++    if (g_hud.anchor < 0 || g_hud.offscreen) return v;
 +    const std::int32_t a = g_hud.anchor, x0 = static_cast<std::int32_t>(v & 0x7FFu), x1 = static_cast<std::int32_t>((v >> 16) & 0x7FFu);
 +    // A box over the whole 512-pixel frame clips nothing of the part, and it is how the game puts the scissor back after a part
 +    // that drew in a box of its own: squeezed (toward the centre, 64..447) it stayed in force for the parts drawn after it and cut
@@ -642,6 +723,7 @@ index ead8386..8b85108 100644
 +                if (is_xyz(address)) d0 = (d0 & ~0xFFFFull) | hud_x(static_cast<std::uint32_t>(d0 & 0xFFFFu));
 +                else if (address == 0x18 || address == 0x19) g_hud.ofx[address - 0x18] = static_cast<std::int32_t>(d0 & 0xFFFFu);
 +                else if (address == 0x40 || address == 0x41) d0 = hud_scissor(d0);
++                else if (address == 0x4C) g_hud.offscreen = static_cast<int>((d0 >> 16) & 0x3Fu) * 64 < hud_width();
 +            }
 +            std::memcpy(at, &d0, 8);
 +            if (++p.reg >= p.nreg) {
@@ -678,6 +760,7 @@ index ead8386..8b85108 100644
 +    if ((g_hud.mark & 0x8000u) && hud_log())
 +        std::fprintf(stderr, "[hud] part %u side %u: x %d..%d, %u vertices\n", (g_hud.mark >> 8) & 0x1Fu, g_hud.mark & 3u, g_hud.lo, g_hud.hi, g_hud.vertices);
 +    g_hud.mark = value;
++    g_hud.offscreen = false;
 +    if (!(value & 0x8000u)) return;
 +    // Until the HUD sets XYOFFSET itself, the frame is taken as centred in the GS's 4096-pixel space for its width (MC1Recomp:
 +    // Midnight Club sets it outside the HUD's parts, for a 640-pixel frame, 0x6C00; the old fixed 0x7000 is a 512-pixel one).
@@ -688,8 +771,7 @@ index ead8386..8b85108 100644
 +        return true;
 +    }();
 +    (void)offset_default;
-+    // PS2_HUD_WIDTH: the frame's width in pixels (default 512, Midnight Club II; MC1Recomp: Midnight Club draws 640)
-+    static const int width = [] { const char *w = std::getenv("PS2_HUD_WIDTH"); const int v = w ? std::atoi(w) : 0; return v > 0 ? v : 512; }();
++    const int width = hud_width();
 +    const int kSides[4] = {-2, 0, width / 2, width};  // -2: the part's first transfer picks the side (transfer below)
 +    g_hud.anchor = kSides[value & 3u];
 +    for (Path &p : g_hud.paths) p = Path{};
@@ -708,6 +790,7 @@ index ead8386..8b85108 100644
 +        if (g_hud.anchor == -2) {
 +            // side 0: measure this transfer without changing it, then take the third of the frame its middle is in
 +            const Path saved = g_hud.paths[path];
++            const bool saved_offscreen = g_hud.offscreen;
 +            const std::uint32_t vertices = g_hud.vertices;
 +            g_hud.anchor = -1;
 +            g_hud.lo = 1 << 30, g_hud.hi = -(1 << 30);
@@ -721,6 +804,7 @@ index ead8386..8b85108 100644
 +                g_hud.anchor = -2;  // nothing drawn yet: the next transfer decides
 +            }
 +            g_hud.paths[path] = saved;
++            g_hud.offscreen = saved_offscreen;
 +            g_hud.vertices = vertices;
 +            g_hud.lo = lo, g_hud.hi = hi;
 +        }

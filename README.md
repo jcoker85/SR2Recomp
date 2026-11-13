@@ -79,7 +79,8 @@ bash tools/build.sh "/c/Games/Smuggler's Run 2 - Hostile Territory (USA).iso"
 
 1. fetches ps2-native-recomp v0.0.4 (the submodule) and applies `patches/ps2-native-recomp.patch`;
 2. sets up the toolkit's build tools;
-3. translates the game's code from your disc into C++ and builds the game program (`ps2run.exe`), with the 60 FPS
+3. translates the game's code from your disc into C++ and builds the game program (`ps2run.exe`); its exploring run drives
+   into a level, so the vector unit programs of the driving are compiled in too. The 60 FPS
    option's switchable instructions (`sr2-options/toggles.txt`), the Fixed Widescreen HUD's hooks
    (`sr2-options/hud43.pnach`) and Skip Intro's switch (`sr2-options/skipintro.pnach`) built in, all off until the
    launcher turns them on;
@@ -137,10 +138,21 @@ the game runs, it reads its data from your disc image.
   - `sceCdSeek` finishes with its callback (`iop/cdvd.cpp`): the game's sound driver (`AUDIO.IRX`) starts every music
     stream with a seek and goes on from the drive's callback. The runtime's seek returned at once and never called it, so
     no music stream ever started, and pausing the game, which waits for the streams, hung for ever.
+  - vector unit programs that start with a harmless branch in a branch's delay slot are compiled (`recomp/vurecomp_gen.cpp`):
+    the game enters its particle program (VU1 `0x1420`, which draws the smoke and dust, up to 1,000 times a frame) through a
+    trampoline, `IBNE 0x1438` with `BAL 0x1770` in its delay slot and the same NOP at both places the branch can go on. The
+    recompiler left every such program to the slow interpreter; taken or not, that branch changes nothing, so it is now
+    compiled as a NOP (the program keeps its key, so the runtime finds it; the pictures are bit-for-bit the same). The black
+    smoke over the burnt village in Russia (Afghan map, about x 760-1125, z 590-855) cost 20 ms a frame at 4x with 60 FPS
+    before and holds 16.7 ms now. Its look is the game's own: dark puffs from a 2x2 atlas, drawn the same in the toolkit's
+    PS2-accurate software renderer;
   - debugging aids in the sound chip (`spu2.cpp`): `PS2_SPU2_SOLO=<hex mask>` lets only those voices of core 1 be heard,
     and the voice list `PS2_TRACE_SPU2` prints at the end of a run has each voice's volumes;
   - a HUD part's mark survives the game's own VIF MARKs (`gif.cpp`): this engine sends a MARK with every texture it waits
     for, inside the HUD's parts too, which ended each part's mark before it had drawn anything.
+  - the HUD squeeze leaves alone what a part draws into a frame buffer narrower than the screen (`gif.cpp`): inside the
+    rear-view mirror the game draws a 64x32 texture of its own for the distant trees and bushes, and squeezed toward the
+    screen's centre those draws left it, so the trees in the mirror turned into blue boxes.
 - `ps2-native-recomp/`: the toolkit, as a git submodule.
 - `tools/`: the build script, the release packaging script and `mips.py` (a small R5900 disassembler and
   address-reference finder used to trace the game's code).
